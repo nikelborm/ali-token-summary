@@ -18,6 +18,7 @@ import * as DateTime from 'effect/DateTime'
 import * as Effect from 'effect/Effect'
 import * as Layer from 'effect/Layer'
 import * as Order from 'effect/Order'
+import type * as PlatformError from 'effect/PlatformError'
 import * as Redacted from 'effect/Redacted'
 import * as Schema from 'effect/Schema'
 import * as HttpClient from 'effect/unstable/http/HttpClient'
@@ -31,7 +32,7 @@ export class AliyunError extends Schema.TaggedError<AliyunError>()(
   'AliyunError',
   {
     message: Schema.String,
-    cause: Schema.optional(Schema.Defect()),
+    cause: Schema.optional(Schema.ErrorInstance()),
   },
 ) {}
 
@@ -59,11 +60,11 @@ export const bssOpenApi: Endpoint = {
  */
 export const percentEncode = (value: string): string =>
   encodeURIComponent(value)
-    .replace(/!/g, '%21')
-    .replace(/'/g, '%27')
-    .replace(/\(/g, '%28')
-    .replace(/\)/g, '%29')
-    .replace(/\*/g, '%2A')
+    .replaceAll('!', '%21')
+    .replaceAll("'", '%27')
+    .replaceAll('(', '%28')
+    .replaceAll(')', '%29')
+    .replaceAll('*', '%2A')
 
 export const canonicalQuery = (parameters: Record<string, string>): string =>
   Object.entries(parameters)
@@ -71,18 +72,19 @@ export const canonicalQuery = (parameters: Record<string, string>): string =>
     .map(([key, value]) => `${percentEncode(key)}=${percentEncode(value)}`)
     .join('&')
 
-const hmacSha1Base64 = (key: string, message: string): string => {
-  const hasher = new Bun.CryptoHasher('sha1', key)
-  hasher.update(message)
-  return hasher.digest('base64')
-}
+const hmacSha1Base64 = (key: string, message: string): Effect.Effect<string> =>
+  Effect.sync(() => {
+    const hasher = new Bun.CryptoHasher('sha1', key)
+    hasher.update(message)
+    return hasher.digest('base64')
+  })
 
 /** Signature Version 1.0: sign `METHOD&/&<canonical query>` with `secret&`. */
-export const signature = (
+export const sign = (
   secret: string,
   method: string,
   parameters: Record<string, string>,
-): string =>
+): Effect.Effect<string, PlatformError.PlatformError, Crypto.Crypto> =>
   hmacSha1Base64(
     `${secret}&`,
     `${method}&${percentEncode('/')}&${percentEncode(canonicalQuery(parameters))}`,
@@ -95,7 +97,7 @@ export class AliyunApi extends Context.Service<
     call(
       action: string,
       parameters: Record<string, string>,
-    ): Effect.Effect<unknown, AliyunError>
+    ): Effect.Effect<Schema.Json, AliyunError>
   }
 >()('ali_summary/AliyunApi') {}
 
@@ -114,11 +116,11 @@ export type AliyunApiLayer = Layer.Layer<
 
 const parseJson = (action: string, body: string) =>
   Effect.try({
-    try: () => JSON.parse(body) as unknown,
+    try: () => JSON.parse(body) as Schema.Json,
     catch: cause =>
       new AliyunError({
         message: `${action} returned a body that is not JSON`,
-        cause,
+        cause: cause as Error,
       }),
   })
 
@@ -128,75 +130,81 @@ export const layerHttp: AliyunApiLayer = Effect.gen(function* () {
   const client = yield* HttpClient.HttpClient
   const crypto = yield* Crypto.Crypto
 
-  const call = Effect.fn('AliyunApi.http')(function* (
-    action: string,
-    parameters: Record<string, string>,
-  ) {
-    const now = yield* DateTime.now
-    // The service rejects sub-second precision in Timestamp.
-    const timestamp = `${DateTime.toDateUtc(now).toISOString().slice(0, 19)}Z`
-    // Replay protection: the service rejects a nonce it has seen before.
-    const nonce = yield* crypto.randomUUIDv4.pipe(
-      Effect.mapError(
+  const call = Effect.fn('AliyunApi.http')(
+    function* (action: string, parameters: Record<string, string>) {
+      const now = yield* DateTime.now
+      // The service rejects sub-second precision in Timestamp.
+      const timestamp = `${DateTime.toDateUtc(now).toISOString().slice(0, 19)}Z`
+      // Replay protection: the service rejects a nonce it has seen before.
+      const nonce = yield* Effect.mapError(
+        crypto.randomUUIDv4,
         cause =>
           new AliyunError({
             message: 'Could not generate a signature nonce',
             cause,
           }),
-      ),
-    )
+      )
 
-    const signed: Record<string, string> = {
-      ...parameters,
-      Action: action,
-      Format: 'JSON',
-      Version: bssOpenApi.version,
-      RegionId: bssOpenApi.region,
-      AccessKeyId: credentials.accessKeyId,
-      SignatureMethod: 'HMAC-SHA1',
-      SignatureVersion: '1.0',
-      SignatureNonce: nonce,
-      Timestamp: timestamp,
-    }
+      const payload: Record<string, string> = {
+        ...parameters,
+        Action: action,
+        Format: 'JSON',
+        Version: bssOpenApi.version,
+        RegionId: bssOpenApi.region,
+        AccessKeyId: credentials.accessKeyId,
+        SignatureMethod: 'HMAC-SHA1',
+        SignatureVersion: '1.0',
+        SignatureNonce: nonce,
+        Timestamp: timestamp,
+      }
 
-    const query = canonicalQuery(signed)
-    const sig = signature(
-      Redacted.value(credentials.accessKeySecret),
-      'GET',
-      signed,
-    )
-    const url = `https://${bssOpenApi.host}/?${query}&Signature=${percentEncode(sig)}`
+      const query = canonicalQuery(payload)
+      const signature = yield* sign(
+        Redacted.value(credentials.accessKeySecret),
+        'GET',
+        payload,
+      ).pipe(
+        Effect.mapError(
+          cause =>
+            new AliyunError({ message: 'Could not sign the request', cause }),
+        ),
+      )
+      const url = `https://${bssOpenApi.host}/?${query}&Signature=${percentEncode(signature)}`
 
-    const response = yield* client.execute(HttpClientRequest.get(url)).pipe(
-      Effect.mapError(
-        cause =>
-          new AliyunError({
-            message: `Request to ${bssOpenApi.host} failed`,
-            cause,
-          }),
-      ),
-    )
+      const response = yield* HttpClientRequest.get(url).pipe(
+        client.execute,
+        Effect.mapError(
+          cause =>
+            new AliyunError({
+              message: `Request to ${bssOpenApi.host} failed`,
+              cause,
+            }),
+        ),
+      )
 
-    const body = yield* response.text.pipe(
-      Effect.mapError(
+      const body = yield* Effect.mapError(
+        response.json,
         cause =>
           new AliyunError({
             message: 'Could not read the response body',
             cause,
           }),
-      ),
-    )
+      )
 
-    if (response.status >= 400) {
-      // Alibaba returns a JSON error envelope; surfacing it verbatim is
-      // far more useful than the status code alone.
-      return yield* new AliyunError({
-        message: `${action} failed with HTTP ${response.status}: ${body}`,
-      })
-    }
+      if (response.status >= 400) {
+        // Alibaba returns a JSON error envelope; surfacing it verbatim is
+        // far more useful than the status code alone.
+        return yield* new AliyunError({
+          message: `${action} failed with HTTP ${response.status}`,
+          // TODO: actually make it possible to inspect the error
+          body,
+        })
+      }
 
-    return yield* parseJson(action, body)
-  })
+      return body
+    },
+    Effect.provideService(Crypto.Crypto, crypto),
+  )
 
   return AliyunApi.of({ call })
 }).pipe(Layer.effect(AliyunApi))

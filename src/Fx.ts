@@ -3,13 +3,11 @@
  *
  * The Central Bank of Russia rate is the reference figure for anything
  * denominated in roubles, so it is preferred. It is published on business days
- * only, which means a Sunday run legitimately returns Friday's number - the
- * `stale` flag exists so the report can say so rather than quietly implying the
- * rate is current. If CBR is unreachable, a market aggregate stands in.
+ * only, which means a Sunday run legitimately returns Friday's number. If CBR
+ * is unreachable, a market aggregate stands in.
  */
 import * as BigDecimal from 'effect/BigDecimal'
 import * as Context from 'effect/Context'
-import * as DateTime from 'effect/DateTime'
 import * as Effect from 'effect/Effect'
 import * as Layer from 'effect/Layer'
 import * as Option from 'effect/Option'
@@ -20,15 +18,13 @@ import * as HttpIncomingMessage from 'effect/unstable/http/HttpIncomingMessage'
 
 export class FxError extends Schema.TaggedError<FxError>()('FxError', {
   message: Schema.String,
-  cause: Schema.optional(Schema.Defect()),
+  cause: Schema.optional(Schema.ErrorInstance()),
 }) {}
 
 export interface Rate {
   readonly rubPerUsd: BigDecimal.BigDecimal
   readonly source: string
   readonly asOf: string
-  /** True when the quote is more than a day old. */
-  readonly stale: boolean
 }
 
 const CBR_URL = 'https://www.cbr-xml-daily.ru/daily_json.js'
@@ -51,8 +47,6 @@ const ErApiResponse = Schema.Struct({
   rates: Schema.Struct({ RUB: Schema.Number }),
 })
 
-const DAY_MILLIS = 24 * 60 * 60 * 1000
-
 const decimalOf = (value: number, label: string) =>
   Option.match(BigDecimal.fromNumber(value), {
     onNone: () =>
@@ -70,26 +64,19 @@ export class Fx extends Context.Service<
 >()('ali_summary/Fx') {}
 
 export const layer = Effect.gen(function* () {
-  const client = yield* HttpClient.HttpClient
+  const client = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
 
-  const fetchJson = Effect.fnUntraced(function* <S extends Schema.Struct<any>>(
+  const fetchJson = <S extends Schema.Struct<any>>(
     url: string,
     schema: S,
     label: string,
-  ) {
-    const response = yield* client
-      .execute(HttpClientRequest.get(url))
-      .pipe(
-        Effect.mapError(
-          cause => new FxError({ message: `${label} is unreachable`, cause }),
-        ),
-      )
-    if (response.status >= 400) {
-      return yield* new FxError({
-        message: `${label} responded with HTTP ${response.status}`,
-      })
-    }
-    return yield* HttpIncomingMessage.schemaBodyJson(schema)(response).pipe(
+  ) =>
+    HttpClientRequest.get(url).pipe(
+      client.execute,
+      Effect.mapError(
+        cause => new FxError({ message: `${label} is unreachable`, cause }),
+      ),
+      Effect.flatMap(HttpIncomingMessage.schemaBodyJson(schema)),
       Effect.mapError(
         cause =>
           new FxError({
@@ -98,17 +85,6 @@ export const layer = Effect.gen(function* () {
           }),
       ),
     )
-  })
-
-  const stalenessOf = Effect.fnUntraced(function* (quotedAt: string) {
-    const now = yield* DateTime.now
-    const quoted = DateTime.make(quotedAt)
-    if (Option.isNone(quoted)) return false
-    const age =
-      DateTime.toDateUtc(now).getTime() -
-      DateTime.toDateUtc(quoted.value).getTime()
-    return age > DAY_MILLIS
-  })
 
   const fromCbr = Effect.gen(function* () {
     const body = yield* fetchJson(CBR_URL, CbrResponse, 'CBR')
@@ -125,7 +101,6 @@ export const layer = Effect.gen(function* () {
       rubPerUsd,
       source: 'CBR',
       asOf: body.Date,
-      stale: yield* stalenessOf(body.Date),
     } satisfies Rate
   })
 
@@ -145,7 +120,6 @@ export const layer = Effect.gen(function* () {
       rubPerUsd,
       source: 'open.er-api.com',
       asOf: body.time_last_update_utc,
-      stale: yield* stalenessOf(body.time_last_update_utc),
     } satisfies Rate
   })
 

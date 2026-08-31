@@ -1,9 +1,9 @@
-import { describe, expect, test } from 'bun:test'
-
+import { describe, expect, test } from '@effect/vitest'
 import * as BigDecimal from 'effect/BigDecimal'
 import * as Effect from 'effect/Effect'
 import * as Layer from 'effect/Layer'
 import * as Option from 'effect/Option'
+import type * as Schema from 'effect/Schema'
 
 import * as Aliyun from '../src/Aliyun.ts'
 import * as Bill from '../src/Bill.ts'
@@ -11,7 +11,7 @@ import * as Format from '../src/Format.ts'
 import * as Report from '../src/Report.ts'
 import * as Fixtures from './fixtures.ts'
 
-const withPayload = (payload: unknown) =>
+const withPayload = (payload: Schema.Json) =>
   Bill.layer.pipe(
     Layer.provide(
       Layer.succeed(
@@ -21,7 +21,7 @@ const withPayload = (payload: unknown) =>
     ),
   )
 
-const fetchRows = (payload: unknown) =>
+const fetchRows = (payload: Schema.Json) =>
   Effect.runPromise(
     Effect.gen(function* () {
       const bill = yield* Bill.Bill
@@ -29,7 +29,7 @@ const fetchRows = (payload: unknown) =>
     }).pipe(Effect.provide(withPayload(payload))),
   )
 
-const payloadWith = (extra: ReadonlyArray<unknown>) => ({
+const payloadWith = (extra: ReadonlyArray<Schema.Json>) => ({
   ...Fixtures.describeInstanceBill,
   Data: {
     ...Fixtures.describeInstanceBill.Data,
@@ -230,7 +230,6 @@ describe('derived figures', () => {
         rubPerUsd: BigDecimal.fromStringUnsafe('85.6007'),
         source: 'CBR',
         asOf: '2026-08-29T11:30:00+03:00',
-        stale: true,
       }),
     })
 

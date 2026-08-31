@@ -71,8 +71,8 @@ child environment rather than argv so they stay out of the process table.
   `Format.toPlainString` renders positionally and `Intl.NumberFormat` groups
   digits with spaces.
 - **The FX rate is CBR**, which is the reference rate for anything denominated
-  in roubles but publishes on business days only. A weekend run is flagged
-  `[stale]`. `open.er-api.com` stands in if CBR is unreachable.
+  in roubles but publishes on business days only. `open.er-api.com` stands in if
+  CBR is unreachable.
 - **Token counts are metered in thousands**, spelled `1K tokens` by Model
   Studio and `KTokens` by Marketplace. Both are scaled to whole tokens; any
   other unit passes through unscaled rather than being misreported.

@@ -1,4 +1,6 @@
-import { expect, test } from 'bun:test'
+import * as BunCrypto from '@effect/platform-bun/BunCrypto'
+import { expect, it, test } from '@effect/vitest'
+import * as Effect from 'effect/Effect'
 
 import * as Aliyun from '../src/Aliyun.ts'
 
@@ -26,11 +28,13 @@ test('canonicalises parameters in sorted order with the strict unreserved set', 
   )
 })
 
-test('reproduces the signature from the documented example', () => {
-  expect(Aliyun.signature('testsecret', 'GET', documentedRequest)).toBe(
-    'OLeaidS1JvxuMvnyHOwuJ+uX5qY=',
-  )
-})
+it.effect('reproduces the signature from the documented example', () =>
+  Effect.gen(function* () {
+    expect(yield* Aliyun.sign('testsecret', 'GET', documentedRequest)).toBe(
+      'OLeaidS1JvxuMvnyHOwuJ+uX5qY=',
+    )
+  }).pipe(Effect.provide(BunCrypto.layer)),
+)
 
 test('escapes the characters encodeURIComponent leaves alone', () => {
   // Alibaba treats only A-Za-z0-9-_.~ as unreserved.

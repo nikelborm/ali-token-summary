@@ -242,7 +242,6 @@ export const toJson = (
       rubPerUsd: Format.toPlainString(rate.rubPerUsd),
       source: rate.source,
       asOf: rate.asOf,
-      stale: rate.stale,
     }),
   }),
   models: rows.map(row => ({

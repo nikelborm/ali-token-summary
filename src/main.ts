@@ -76,17 +76,6 @@ const currentCycle = Effect.map(DateTime.now, now =>
   DateTime.formatIsoDateUtc(now).slice(0, 7),
 )
 
-/**
- * Everything the handler needs that the command line does not choose. It hangs
- * off the command rather than the runtime so that `--help` and a rejected
- * argument still work on a machine with no access key.
- */
-const AppLayer = Credentials.layer.pipe(
-  Layer.provideMerge(Fx.layer),
-  Layer.provideMerge(BunHttpClient.layer),
-  Layer.provideMerge(BunServices.layer),
-)
-
 const command = Command.make(
   'ali-summary',
   { cycle, currency, product, transport, json, nonzero },
@@ -99,7 +88,6 @@ const command = Command.make(
     const program = Effect.gen(function* () {
       const bill = yield* Bill.Bill
       const fx = yield* Fx.Fx
-      const credentials = yield* Credentials.Credentials
 
       // The rate is a nicety, not a dependency: a report in dollars is still
       // worth printing when every FX source is down.
@@ -150,16 +138,12 @@ const command = Command.make(
 
       yield* Console.log(
         `Alibaba Cloud Model Studio - billing cycle ${billingCycle}` +
-          `  (via ${input.transport === 'cli' ? 'aliyun CLI' : 'signed HTTP'}, keys from ${credentials.source})`,
+          `  (via ${input.transport === 'cli' ? 'aliyun CLI' : 'signed HTTP'})`,
       )
 
       if (Option.isSome(quote)) {
         const line = `Rate: ${Format.fixed(quote.value.rubPerUsd, 4)} RUB/USD  (${quote.value.source}, ${quote.value.asOf})`
-        yield* quote.value.stale
-          ? // CBR publishes on business days only, so a weekend run is expected
-            // to be behind. Say so instead of implying the number is live.
-            Console.log(`${line}  [stale - no newer quote published]`)
-          : Console.log(line)
+        yield* Console.log(line)
       }
 
       yield* Console.log('')
@@ -187,6 +171,7 @@ const command = Command.make(
     })
 
     yield* program.pipe(
+      // TODO: why is this a problem at all? Can't we just print warnings etc to stderr?
       // In JSON mode stdout must stay parseable, so warnings are dropped.
       quiet
         ? Effect.provideService(References.MinimumLogLevel, 'None')
@@ -205,6 +190,12 @@ const command = Command.make(
       transport === 'cli' ? Aliyun.layerCli : Aliyun.layerHttp,
     { local: true },
   ),
+)
+
+const AppLayer = Credentials.layer.pipe(
+  Layer.provideMerge(Fx.layer),
+  Layer.provideMerge(BunHttpClient.layer),
+  Layer.provideMerge(BunServices.layer),
 )
 
 command.pipe(

@@ -5,7 +5,8 @@
   "private": true,
   "devDependencies": {
     "@types/bun": "latest",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
   },
   "dependencies": {
     "@biomejs/biome": "^2.5.11",
@@ -23,7 +24,7 @@
   "scripts": {
     "build": "tsc && rollup -c rollup.config.mts && chmod +x dist/minified/*",
     "lint": "biome check --write --unsafe",
-    "test": "bun test"
+    "test": "bun --bun run vitest run"
   },
   "bin": {
     "ali-summary": "index.ts"

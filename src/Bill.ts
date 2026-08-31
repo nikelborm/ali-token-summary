@@ -31,7 +31,7 @@ import * as Aliyun from './Aliyun.ts'
 
 export class BillError extends Schema.TaggedError<BillError>()('BillError', {
   message: Schema.String,
-  cause: Schema.optional(Schema.Defect()),
+  cause: Schema.optional(Schema.ErrorInstance()),
 }) {}
 
 export const ZERO = BigDecimal.fromBigInt(0n)
