@@ -14,13 +14,13 @@ import * as EString from 'effect/String'
 import * as ChildProcess from 'effect/unstable/process/ChildProcess'
 import * as ChildProcessSpawner from 'effect/unstable/process/ChildProcessSpawner'
 
-export class CredentialsError extends Schema.TaggedError<CredentialsError>()(
-  'CredentialsError',
+export class Credentials extends Context.Service<
+  Credentials,
   {
-    message: Schema.String,
-    cause: Schema.optional(Schema.ErrorInstance()),
-  },
-) {}
+    readonly accessKeyId: string
+    readonly accessKeySecret: Redacted.Redacted<string>
+  }
+>()('ali_summary/Credentials') {}
 
 const ENV_KEY_ID = 'ALIBABA_CLOUD_ACCESS_KEY_ID'
 const ENV_KEY_SECRET = 'ALIBABA_CLOUD_ACCESS_KEY_SECRET'
@@ -28,36 +28,9 @@ const ENV_KEY_SECRET = 'ALIBABA_CLOUD_ACCESS_KEY_SECRET'
 const PASS_KEY_ID = 'alibabacloud.com/vova/access_key_id'
 const PASS_KEY_SECRET = 'alibabacloud.com/vova/access_key_secret'
 
-const passShow = (entry: string) =>
-  ChildProcessSpawner.ChildProcessSpawner.use(spawner =>
-    // inherit, so that gpg agent can show the password prompt
-    spawner.string(
-      ChildProcess.make({
-        stderr: 'inherit',
-        stdin: 'inherit',
-      })`pass show ${entry}`,
-    ),
-  ).pipe(
-    // The expectation is that nothing else will be present in the file except
-    // one line we're looking for
-    Effect.map(EString.trim),
-    Effect.mapError(
-      cause =>
-        new CredentialsError({
-          message: `Could not read "${entry}" from the password store`,
-          cause,
-        }),
-    ),
-  )
-
 // TODO: just implement a ConfigStore interface on top of pass instead of manual
 // fallback, but first need to verify that there's a way to properly compose
 // many stores, because this is essentially what I have
-
-const NonEmptyTrimmedString = Schema.String.check(
-  Schema.isNonEmpty(),
-  Schema.isTrimmed(),
-)
 
 const getParsedEnvOrFallbackToPassStore = (conf: {
   envName: string
@@ -69,22 +42,18 @@ const getParsedEnvOrFallbackToPassStore = (conf: {
     Effect.catchTag('NoSuchElementError', () => passShow(conf.passEntryPath)),
     Effect.catchTag(
       'ConfigError',
-      cause =>
-        new CredentialsError({
-          message: `Failed to parse environment config entry`,
-          cause,
-        }),
+      CredentialsError.passthroughCause(
+        `Failed to parse environment config entry`,
+      ),
     ),
     Effect.flatMapEager(Schema.decodeEffect(NonEmptyTrimmedString)),
+    Effect.catchTag(
+      'SchemaError',
+      CredentialsError.passthroughCause(
+        `Failed to parse decrypted password-store entry`,
+      ),
+    ),
   )
-
-export class Credentials extends Context.Service<
-  Credentials,
-  {
-    readonly accessKeyId: string
-    readonly accessKeySecret: Redacted.Redacted<string>
-  }
->()('ali_summary/Credentials') {}
 
 export const layer = Effect.all(
   {
@@ -102,3 +71,39 @@ export const layer = Effect.all(
   },
   { concurrency: 2 },
 ).pipe(Layer.effect(Credentials))
+
+const passShow = (entry: string) =>
+  ChildProcessSpawner.ChildProcessSpawner.use(spawner =>
+    // inherit, so that gpg agent can show the password prompt
+    spawner.string(
+      ChildProcess.make({
+        stderr: 'inherit',
+        stdin: 'inherit',
+      })`pass show ${entry}`,
+    ),
+  ).pipe(
+    // The expectation is that nothing else will be present in the file except
+    // one line we're looking for
+    Effect.map(EString.trim),
+    Effect.mapError(
+      CredentialsError.passthroughCause(
+        `Could not read "${entry}" from the password store`,
+      ),
+    ),
+  )
+
+export class CredentialsError extends Schema.TaggedError<CredentialsError>()(
+  'CredentialsError',
+  {
+    message: Schema.String,
+    cause: Schema.optional(Schema.ErrorInstance()),
+  },
+) {
+  static passthroughCause = (message: string) => (cause: Error) =>
+    new CredentialsError({ message, cause })
+}
+
+const NonEmptyTrimmedString = Schema.String.check(
+  Schema.isNonEmpty(),
+  Schema.isTrimmed(),
+)

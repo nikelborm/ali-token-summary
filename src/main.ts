@@ -91,7 +91,7 @@ const command = Command.make(
 
       // The rate is a nicety, not a dependency: a report in dollars is still
       // worth printing when every FX source is down.
-      const rate =
+      const rateEffect =
         input.currency === 'usd'
           ? Effect.succeed(Option.none<CurrencyConverter.Rate>())
           : currencyConverter.usdToRub.pipe(
@@ -103,14 +103,18 @@ const command = Command.make(
               ),
             )
 
-      const [items, quote] = yield* Effect.all(
-        [
-          bill.instanceBill({
-            cycle: billingCycle,
-            productCode: input.product.pipe(Option.getOrUndefined),
-          }),
-          rate,
-        ],
+      const { items, rate } = yield* Effect.all(
+        {
+          items: Effect.provide(
+            bill.instanceBill({
+              cycle: billingCycle,
+              productCode: input.product.pipe(Option.getOrUndefined),
+            }),
+            Credentials.layer,
+            { local: true },
+          ),
+          rate: rateEffect,
+        },
         { concurrency: 2 },
       )
 
@@ -122,7 +126,7 @@ const command = Command.make(
       if (input.json) {
         return yield* Console.log(
           JSON.stringify(
-            Report.toJson(rows, { cycle: billingCycle, rate: quote }),
+            Report.toJson(rows, { cycle: billingCycle, rate: rate }),
             null,
             2,
           ),
@@ -141,8 +145,8 @@ const command = Command.make(
           `  (via ${input.transport === 'cli' ? 'aliyun CLI' : 'signed HTTP'})`,
       )
 
-      if (Option.isSome(quote)) {
-        const line = `Rate: ${Format.fixed(quote.value.rubPerUsd, 4)} RUB/USD  (${quote.value.source}, ${quote.value.asOf})`
+      if (Option.isSome(rate)) {
+        const line = `Rate: ${Format.fixed(rate.value.rubPerUsd, 4)} RUB/USD  (${rate.value.source}, ${rate.value.asOf})`
         yield* Console.log(line)
       }
 
@@ -150,15 +154,15 @@ const command = Command.make(
       yield* Console.table(
         Report.toTable([...rows, Report.totalOf(rows)], {
           currency: input.currency,
-          rate: quote,
+          rate: rate,
         }),
       )
 
       const total = Report.totalOf(rows)
       yield* Console.log(
         `\nGross ${Format.money(total.gross, 8)} USD` +
-          (Option.isSome(quote)
-            ? ` / ${Format.money(BigDecimal.multiply(total.gross, quote.value.rubPerUsd), 4)} RUB`
+          (Option.isSome(rate)
+            ? ` / ${Format.money(BigDecimal.multiply(total.gross, rate.value.rubPerUsd), 4)} RUB`
             : '') +
           `, of which ${Format.money(total.charged, 8)} USD is actually charged.`,
       )
@@ -192,8 +196,7 @@ const command = Command.make(
   ),
 )
 
-const AppLayer = Credentials.layer.pipe(
-  Layer.provideMerge(CurrencyConverter.layer),
+const AppLayer = CurrencyConverter.layer.pipe(
   Layer.provideMerge(BunHttpClient.layer),
   Layer.provideMerge(BunServices.layer),
 )

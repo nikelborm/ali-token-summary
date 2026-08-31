@@ -1,3 +1,4 @@
+import * as BunServices from '@effect/platform-bun/BunServices'
 import { describe, expect, test } from '@effect/vitest'
 import * as BigDecimal from 'effect/BigDecimal'
 import * as Effect from 'effect/Effect'
@@ -7,6 +8,7 @@ import type * as Schema from 'effect/Schema'
 
 import * as Aliyun from '../src/Aliyun.ts'
 import * as Bill from '../src/Bill.ts'
+import * as Credentials from '../src/Credentials.ts'
 import * as Format from '../src/Format.ts'
 import * as Report from '../src/Report.ts'
 import * as Fixtures from './fixtures.ts'
@@ -25,7 +27,16 @@ const fetchRows = (payload: Schema.Json) =>
   Effect.runPromise(
     Effect.gen(function* () {
       const bill = yield* Bill.Bill
-      return Report.aggregate(yield* bill.instanceBill({ cycle: '2026-08' }))
+      // TODO: avoid accessing the actual credentials here
+      return Report.aggregate(
+        yield* bill
+          .instanceBill({ cycle: '2026-08' })
+          .pipe(
+            Effect.provide(
+              Layer.provideMerge(Credentials.layer, BunServices.layer),
+            ),
+          ),
+      )
     }).pipe(Effect.provide(withPayload(payload))),
   )
 

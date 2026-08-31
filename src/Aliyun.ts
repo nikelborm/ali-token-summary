@@ -23,12 +23,173 @@ import * as Order from 'effect/Order'
 import type * as PlatformError from 'effect/PlatformError'
 import * as Redacted from 'effect/Redacted'
 import * as Schema from 'effect/Schema'
+import type * as Unify from 'effect/Unify'
 import * as HttpClient from 'effect/unstable/http/HttpClient'
 import * as HttpClientRequest from 'effect/unstable/http/HttpClientRequest'
 import * as ChildProcess from 'effect/unstable/process/ChildProcess'
 import * as ChildProcessSpawner from 'effect/unstable/process/ChildProcessSpawner'
 
 import * as Credentials from './Credentials.ts'
+
+export const bssOpenApi: Endpoint = {
+  host: 'business.ap-southeast-1.aliyuncs.com',
+  region: 'ap-southeast-1',
+  version: '2017-12-14',
+  product: 'bssopenapi',
+}
+export class AliyunApi extends Context.Service<
+  AliyunApi,
+  {
+    /** Invokes `action` and returns the decoded JSON body, still untyped. */
+    call(
+      action: string,
+      parameters: Record<string, string>,
+    ): Effect.Effect<Schema.Json, AliyunError, Credentials.Credentials>
+  }
+>()('ali_summary/AliyunApi') {}
+
+/** Signs the request locally and sends it straight to the service. */
+export const layerHttp = Effect.gen(function* () {
+  const client = yield* HttpClient.HttpClient
+  const crypto = yield* Crypto.Crypto
+
+  const call = Effect.fn('AliyunApi.http')(
+    function* (action: string, parameters: Record<string, string>) {
+      const { credentials, nonce, timestamp } = yield* Effect.all(
+        {
+          credentials: Credentials.Credentials,
+          // Replay protection: the service rejects a nonce it has seen before.
+          nonce: Effect.mapError(
+            crypto.randomUUIDv4,
+            AliyunError.passthroughCause(
+              'Could not generate a signature nonce',
+            ),
+          ),
+          // The service rejects sub-second precision in Timestamp.
+          timestamp: Effect.map(
+            DateTime.now,
+            now => `${DateTime.toDateUtc(now).toISOString().slice(0, 19)}Z`,
+          ),
+        },
+        { concurrency: 'unbounded' },
+      )
+
+      const payload: Record<string, string> = {
+        ...parameters,
+        Action: action,
+        Format: 'JSON',
+        Version: bssOpenApi.version,
+        RegionId: bssOpenApi.region,
+        AccessKeyId: credentials.accessKeyId,
+        // TODO: check if it has other simpler signature methods which could be
+        // easily supported by effect's builting Crypto, without reimplementing
+        // HMAC
+        SignatureMethod: 'HMAC-SHA1',
+        SignatureVersion: '1.0',
+        SignatureNonce: nonce,
+        Timestamp: timestamp,
+      }
+
+      const canonicalQuery = canonicalizeQuery(payload)
+
+      const signature = yield* Effect.mapError(
+        sign(
+          Redacted.value(credentials.accessKeySecret),
+          'GET',
+          canonicalQuery,
+        ),
+        AliyunError.passthroughCause('Could not sign the request'),
+      )
+
+      const url = `https://${bssOpenApi.host}/?${canonicalQuery}&Signature=${alibabaEncodeURIComponent(signature)}`
+
+      const response = yield* HttpClientRequest.get(url).pipe(
+        client.execute,
+        Effect.mapError(
+          AliyunError.passthroughCause(`Request to ${bssOpenApi.host} failed`),
+        ),
+      )
+
+      const body = yield* Effect.mapError(
+        response.json,
+        AliyunError.passthroughCause('Could not read the response body'),
+      )
+
+      if (response.status >= 400)
+        // We can't do anything about it, in the sense that we need to expose
+        // the same interface from the CLI too, we cannot throw here, besides,
+        // most of the time the API has message and status embedded directly
+        // into the response
+        yield* Effect.logError(`${action} failed with HTTP ${response.status}`)
+
+      return body
+    },
+    Effect.provideService(Crypto.Crypto, crypto),
+  )
+
+  return AliyunApi.of({ call })
+}).pipe(Layer.effect(AliyunApi))
+
+const decodeJson = Schema.Json.pipe(Schema.fromJsonString, Schema.decodeEffect)
+
+/**
+ * Delegates to the `aliyun` binary. Credentials go through the environment
+ * rather than argv, so they stay out of the process table.
+ */
+export const layerCli = Effect.gen(function* () {
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+
+  const call = Effect.fn('AliyunApi.cli')(function* (
+    action: string,
+    parameters: Record<string, string>,
+  ) {
+    const credentials = yield* Credentials.Credentials
+    const args = [
+      bssOpenApi.product,
+      action,
+      '--region',
+      bssOpenApi.region,
+      '--endpoint',
+      bssOpenApi.host,
+      ...Object.entries(parameters).flatMap(([key, value]) => [
+        `--${key}`,
+        value,
+      ]),
+    ]
+
+    const output = yield* ChildProcess.make('aliyun', args, {
+      env: {
+        ALIBABA_CLOUD_ACCESS_KEY_ID: credentials.accessKeyId,
+        ALIBABA_CLOUD_ACCESS_KEY_SECRET: Redacted.value(
+          credentials.accessKeySecret,
+        ),
+      },
+      extendEnv: true,
+    }).pipe(
+      spawner.string,
+      Effect.mapError(
+        AliyunError.passthroughCause(
+          `\`aliyun ${bssOpenApi.product} ${action}\` failed`,
+        ),
+      ),
+    )
+
+    return yield* Effect.mapError(
+      decodeJson(output),
+      AliyunError.passthroughCause(
+        `Failed to parse JSON returned by aliyun CLI`,
+      ),
+    )
+  })
+
+  return AliyunApi.of({ call })
+}).pipe(Layer.effect(AliyunApi))
+
+/**
+ * Either transport, seen from the outside: one service, the union of what the
+ * two need, so a caller can pick between them at runtime.
+ */
+export type AliyunApiLayer = Unify.Unify<typeof layerCli | typeof layerHttp>
 
 export class AliyunError extends Schema.TaggedError<AliyunError>()(
   'AliyunError',
@@ -37,7 +198,10 @@ export class AliyunError extends Schema.TaggedError<AliyunError>()(
     cause: Schema.optionalKey(Schema.ErrorInstance()),
     body: Schema.optionalKey(Schema.Json),
   },
-) {}
+) {
+  static passthroughCause = (message: string) => (cause: Error) =>
+    new AliyunError({ message, cause })
+}
 
 export interface Endpoint {
   /** Host serving the product's API, e.g. `business.ap-southeast-1.aliyuncs.com`. */
@@ -48,13 +212,6 @@ export interface Endpoint {
   readonly version: string
   /** Product namespace as the `aliyun` CLI knows it, e.g. `bssopenapi`. */
   readonly product: string
-}
-
-export const bssOpenApi: Endpoint = {
-  host: 'business.ap-southeast-1.aliyuncs.com',
-  region: 'ap-southeast-1',
-  version: '2017-12-14',
-  product: 'bssopenapi',
 }
 
 // TODO: find sources for this
@@ -96,172 +253,3 @@ export const sign = (
     `${secret}&`,
     `${method}&${alibabaEncodeURIComponent('/')}&${alibabaEncodeURIComponent(canonicalQuery)}`,
   )
-
-export class AliyunApi extends Context.Service<
-  AliyunApi,
-  {
-    /** Invokes `action` and returns the decoded JSON body, still untyped. */
-    call(
-      action: string,
-      parameters: Record<string, string>,
-    ): Effect.Effect<Schema.Json, AliyunError>
-  }
->()('ali_summary/AliyunApi') {}
-
-/**
- * Either transport, seen from the outside: one service, the union of what the
- * two need, so a caller can pick between them at runtime.
- */
-export type AliyunApiLayer = Layer.Layer<
-  AliyunApi,
-  never,
-  | Credentials.Credentials
-  | Crypto.Crypto
-  | HttpClient.HttpClient
-  | ChildProcessSpawner.ChildProcessSpawner
->
-
-/** Signs the request locally and sends it straight to the service. */
-export const layerHttp: AliyunApiLayer = Effect.gen(function* () {
-  const credentials = yield* Credentials.Credentials
-  const client = yield* HttpClient.HttpClient
-  const crypto = yield* Crypto.Crypto
-
-  const call = Effect.fn('AliyunApi.http')(
-    function* (action: string, parameters: Record<string, string>) {
-      const now = yield* DateTime.now
-      // The service rejects sub-second precision in Timestamp.
-      const timestamp = `${DateTime.toDateUtc(now).toISOString().slice(0, 19)}Z`
-      // Replay protection: the service rejects a nonce it has seen before.
-      const nonce = yield* Effect.mapError(
-        crypto.randomUUIDv4,
-        cause =>
-          new AliyunError({
-            message: 'Could not generate a signature nonce',
-            cause,
-          }),
-      )
-
-      const payload: Record<string, string> = {
-        ...parameters,
-        Action: action,
-        Format: 'JSON',
-        Version: bssOpenApi.version,
-        RegionId: bssOpenApi.region,
-        AccessKeyId: credentials.accessKeyId,
-        // TODO: check if it has other simpler signature methods which could be
-        // easily supported by effect's builting Crypto, without reimplementing
-        // HMAC
-        SignatureMethod: 'HMAC-SHA1',
-        SignatureVersion: '1.0',
-        SignatureNonce: nonce,
-        Timestamp: timestamp,
-      }
-
-      const canonicalQuery = canonicalizeQuery(payload)
-
-      const signature = yield* Effect.mapError(
-        sign(
-          Redacted.value(credentials.accessKeySecret),
-          'GET',
-          canonicalQuery,
-        ),
-        cause =>
-          new AliyunError({ message: 'Could not sign the request', cause }),
-      )
-
-      const url = `https://${bssOpenApi.host}/?${canonicalQuery}&Signature=${alibabaEncodeURIComponent(signature)}`
-
-      const response = yield* HttpClientRequest.get(url).pipe(
-        client.execute,
-        Effect.mapError(
-          cause =>
-            new AliyunError({
-              message: `Request to ${bssOpenApi.host} failed`,
-              cause,
-            }),
-        ),
-      )
-
-      const body = yield* Effect.mapError(
-        response.json,
-        cause =>
-          new AliyunError({
-            message: 'Could not read the response body',
-            cause,
-          }),
-      )
-
-      if (response.status >= 400)
-        // We can't do anything about it, in the sense that we need to expose
-        // the same interface from the CLI too, we cannot throw here, besides,
-        // most of the time the API has message and status embedded directly
-        // into the response
-        yield* Effect.logError(`${action} failed with HTTP ${response.status}`)
-
-      return body
-    },
-    Effect.provideService(Crypto.Crypto, crypto),
-  )
-
-  return AliyunApi.of({ call })
-}).pipe(Layer.effect(AliyunApi))
-
-const decodeJson = Schema.Json.pipe(Schema.fromJsonString, Schema.decodeEffect)
-
-/**
- * Delegates to the `aliyun` binary. Credentials go through the environment
- * rather than argv, so they stay out of the process table.
- */
-export const layerCli: AliyunApiLayer = Effect.gen(function* () {
-  const credentials = yield* Credentials.Credentials
-  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-
-  const call = Effect.fn('AliyunApi.cli')(function* (
-    action: string,
-    parameters: Record<string, string>,
-  ) {
-    const args = [
-      bssOpenApi.product,
-      action,
-      '--region',
-      bssOpenApi.region,
-      '--endpoint',
-      bssOpenApi.host,
-      ...Object.entries(parameters).flatMap(([key, value]) => [
-        `--${key}`,
-        value,
-      ]),
-    ]
-
-    const output = yield* ChildProcess.make('aliyun', args, {
-      env: {
-        ALIBABA_CLOUD_ACCESS_KEY_ID: credentials.accessKeyId,
-        ALIBABA_CLOUD_ACCESS_KEY_SECRET: Redacted.value(
-          credentials.accessKeySecret,
-        ),
-      },
-      extendEnv: true,
-    }).pipe(
-      spawner.string,
-      Effect.mapError(
-        cause =>
-          new AliyunError({
-            message: `\`aliyun ${bssOpenApi.product} ${action}\` failed`,
-            cause,
-          }),
-      ),
-    )
-
-    return yield* Effect.mapError(
-      decodeJson(output),
-      cause =>
-        new AliyunError({
-          message: `Failed to parse JSON returned by aliyun CLI`,
-          cause,
-        }),
-    )
-  })
-
-  return AliyunApi.of({ call })
-}).pipe(Layer.effect(AliyunApi))

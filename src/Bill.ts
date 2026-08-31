@@ -28,13 +28,18 @@ import * as Option from 'effect/Option'
 import * as Schema from 'effect/Schema'
 
 import * as Aliyun from './Aliyun.ts'
+import type * as Credentials from './Credentials.ts'
 
 export class Bill extends Context.Service<
   Bill,
   {
     instanceBill(
       options: InstanceBillOptions,
-    ): Effect.Effect<ReadonlyArray<LineItem>, BillError>
+    ): Effect.Effect<
+      ReadonlyArray<LineItem>,
+      BillError,
+      Credentials.Credentials
+    >
   }
 >()('ali_summary/Bill') {}
 
