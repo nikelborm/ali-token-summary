@@ -249,4 +249,25 @@ describe('derived figures', () => {
     expect(total.USD).toBe('0.0009632')
     expect(total.RUB).toBe('0.082451')
   })
+
+  test('caps derived figures at six decimal places', async () => {
+    const rows = await fetchRows(Fixtures.describeInstanceBill)
+    // 0.0009632 USD over 119 tokens is a non-terminating quotient, which the
+    // JSON output once carried to a hundred digits.
+    const report = Report.toJson(rows, {
+      cycle: '2026-08',
+      rate: Option.some({
+        rubPerUsd: BigDecimal.fromStringUnsafe('85.6007'),
+        source: 'CBR',
+        asOf: '2026-08-29T11:30:00+03:00',
+      }),
+    })
+
+    const fast = report.models.find(
+      model => model.model === 'glm-5.2-fast-preview',
+    )
+
+    expect(fast?.usdPerMillionTokens).toBe('8.094118')
+    expect(fast?.grossRub).toBe('0.082451')
+  })
 })

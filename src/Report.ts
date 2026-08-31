@@ -27,6 +27,19 @@ export interface ModelTotals {
 
 const MILLION = BigDecimal.fromBigInt(1_000_000n)
 
+/**
+ * Digits kept for the figures this tool derives rather than reads off the
+ * bill. A division carries BigDecimal's full working precision - the blended
+ * price of 119 tokens came out a hundred digits long - and none of it past the
+ * sixth place is real, since the bill itself is quoted to eight and the FX rate
+ * to four. Rounding here rather than at the point of rendering keeps the table
+ * and the JSON quoting the same number.
+ */
+const DERIVED_SCALE = 6
+
+const roundDerived = (value: BigDecimal.BigDecimal): BigDecimal.BigDecimal =>
+  BigDecimal.round(value, { scale: DERIVED_SCALE, mode: 'half-from-zero' })
+
 interface Accumulator {
   products: Set<string>
   gross: BigDecimal.BigDecimal
@@ -139,15 +152,19 @@ export const perMillionTokens = (
 ): Option.Option<BigDecimal.BigDecimal> =>
   BigDecimal.isZero(row.totalTokens)
     ? Option.none()
-    : BigDecimal.divide(
-        BigDecimal.multiply(row.gross, MILLION),
-        row.totalTokens,
+    : Option.map(
+        BigDecimal.divide(
+          BigDecimal.multiply(row.gross, MILLION),
+          row.totalTokens,
+        ),
+        roundDerived,
       )
 
 const toRub = (
   usd: BigDecimal.BigDecimal,
   rate: CurrencyConverter.Rate,
-): BigDecimal.BigDecimal => BigDecimal.multiply(usd, rate.rubPerUsd)
+): BigDecimal.BigDecimal =>
+  roundDerived(BigDecimal.multiply(usd, rate.rubPerUsd))
 
 export interface RenderOptions {
   readonly currency: Currency
