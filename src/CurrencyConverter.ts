@@ -32,19 +32,13 @@ export const layer = Effect.gen(function* () {
     HttpClientRequest.get(url).pipe(
       client.execute,
       Effect.mapError(
-        cause =>
-          new CurrencyConversionError({
-            message: `${label} is unreachable`,
-            cause,
-          }),
+        CurrencyConversionError.passthroughCause(`${label} is unreachable`),
       ),
       Effect.flatMap(HttpIncomingMessage.schemaBodyJson(schema)),
       Effect.mapError(
-        cause =>
-          new CurrencyConversionError({
-            message: `${label} returned an unexpected shape`,
-            cause,
-          }),
+        CurrencyConversionError.passthroughCause(
+          `${label} returned an unexpected shape`,
+        ),
       ),
     )
 
@@ -105,7 +99,10 @@ export class CurrencyConversionError extends Schema.TaggedError<CurrencyConversi
     message: Schema.String,
     cause: Schema.optional(Schema.ErrorInstance()),
   },
-) {}
+) {
+  static passthroughCause = (message: string) => (cause: Error) =>
+    new CurrencyConversionError({ message, cause })
+}
 
 export interface Rate {
   readonly rubPerUsd: BigDecimal.BigDecimal

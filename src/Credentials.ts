@@ -74,6 +74,22 @@ const NonEmptyTrimmedString = Schema.String.check(
   Schema.isTrimmed(),
 )
 
+// TODO: finish it
+const _AccessId = Schema.String.pipe(
+  Schema.check(
+    Schema.isPattern(/^____$/, {
+      message: 'Expected a __ of the form ___, e.g. __',
+    }),
+  ),
+)
+const _AccessSecret = Schema.String.pipe(
+  Schema.check(
+    Schema.isPattern(/^____$/, {
+      message: 'Expected a __ of the form ___, e.g. __',
+    }),
+  ),
+)
+
 export const layer = Effect.all(
   {
     accessKeyId: getParsedEnvOrFallbackToPassStore({

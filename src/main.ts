@@ -83,7 +83,6 @@ const command = Command.make(
     const billingCycle = Option.isSome(input.cycle)
       ? input.cycle.value
       : yield* currentCycle
-    const quiet = input.json
 
     const program = Effect.gen(function* () {
       const bill = yield* Bill.Bill
@@ -123,7 +122,7 @@ const command = Command.make(
         ? all.filter(row => !BigDecimal.isZero(row.gross))
         : all
 
-      if (input.json) {
+      if (input.json)
         return yield* Console.log(
           JSON.stringify(
             Report.toJson(rows, { cycle: billingCycle, rate: rate }),
@@ -131,14 +130,12 @@ const command = Command.make(
             2,
           ),
         )
-      }
 
-      if (rows.length === 0) {
+      if (rows.length === 0)
         return yield* Console.log(
           `No billed usage for ${billingCycle}.\n` +
             'Daily settlement lags by a few hours, so very recent calls may not have landed yet.',
         )
-      }
 
       yield* Console.log(
         `Alibaba Cloud Model Studio - billing cycle ${billingCycle}` +
@@ -167,17 +164,19 @@ const command = Command.make(
           `, of which ${Format.money(total.charged, 8)} USD is actually charged.`,
       )
 
-      if (BigDecimal.isZero(total.charged) && !BigDecimal.isZero(total.gross)) {
+      if (BigDecimal.isZero(total.charged) && !BigDecimal.isZero(total.gross))
         yield* Console.log(
           'Sub-cent totals are rounded down and waived, which is why the account balance still reads 0.00.',
         )
-      }
     })
 
+    const shouldTheCliBeQuiet = input.json
+
     yield* program.pipe(
-      // TODO: why is this a problem at all? Can't we just print warnings etc to stderr?
-      // In JSON mode stdout must stay parseable, so warnings are dropped.
-      quiet
+      // TODO: why is this a problem at all? Can't we just print logs and
+      // warnings etc to stderr? In JSON mode stdout must stay parseable, so
+      // warnings are dropped.
+      shouldTheCliBeQuiet
         ? Effect.provideService(References.MinimumLogLevel, 'None')
         : Fn.identity,
     )
