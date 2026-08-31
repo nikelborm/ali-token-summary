@@ -55,6 +55,21 @@ const getParsedEnvOrFallbackToPassStore = (conf: {
     ),
   )
 
+export class CredentialsError extends Schema.TaggedError<CredentialsError>()(
+  'CredentialsError',
+  {
+    message: Schema.String,
+    cause: Schema.optional(Schema.ErrorInstance()),
+  },
+) {
+  static passthroughCause = (message: string) => (cause: Error) =>
+    new CredentialsError({ message, cause })
+}
+const NonEmptyTrimmedString = Schema.String.check(
+  Schema.isNonEmpty(),
+  Schema.isTrimmed(),
+)
+
 export const layer = Effect.all(
   {
     accessKeyId: getParsedEnvOrFallbackToPassStore({
@@ -91,19 +106,3 @@ const passShow = (entry: string) =>
       ),
     ),
   )
-
-export class CredentialsError extends Schema.TaggedError<CredentialsError>()(
-  'CredentialsError',
-  {
-    message: Schema.String,
-    cause: Schema.optional(Schema.ErrorInstance()),
-  },
-) {
-  static passthroughCause = (message: string) => (cause: Error) =>
-    new CredentialsError({ message, cause })
-}
-
-const NonEmptyTrimmedString = Schema.String.check(
-  Schema.isNonEmpty(),
-  Schema.isTrimmed(),
-)
