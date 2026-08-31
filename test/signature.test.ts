@@ -30,9 +30,13 @@ test('canonicalises parameters in sorted order with the strict unreserved set', 
 
 it.effect('reproduces the signature from the documented example', () =>
   Effect.gen(function* () {
-    expect(yield* Aliyun.sign('testsecret', 'GET', documentedRequest)).toBe(
-      'OLeaidS1JvxuMvnyHOwuJ+uX5qY=',
-    )
+    expect(
+      yield* Aliyun.sign(
+        'testsecret',
+        'GET',
+        Aliyun.canonicalizeQuery(documentedRequest),
+      ),
+    ).toBe('OLeaidS1JvxuMvnyHOwuJ+uX5qY=')
   }).pipe(Effect.provide(BunCrypto.layer)),
 )
 

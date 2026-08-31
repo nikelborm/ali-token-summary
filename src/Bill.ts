@@ -29,6 +29,143 @@ import * as Schema from 'effect/Schema'
 
 import * as Aliyun from './Aliyun.ts'
 
+export class Bill extends Context.Service<
+  Bill,
+  {
+    instanceBill(
+      options: InstanceBillOptions,
+    ): Effect.Effect<ReadonlyArray<LineItem>, BillError>
+  }
+>()('ali_summary/Bill') {}
+
+export const layer = Effect.gen(function* () {
+  const api = yield* Aliyun.AliyunApi
+
+  const page = Effect.fn('Bill.page')(function* (
+    options: InstanceBillOptions,
+    nextToken: Option.Option<string>,
+  ) {
+    const payload = yield* Effect.mapError(
+      api.call('DescribeInstanceBill', {
+        BillingCycle: options.cycle,
+        Granularity: 'MONTHLY',
+        IsBillingItem: 'true',
+        // MaxResults: '300',
+        ...(options.productCode === undefined
+          ? {}
+          : { ProductCode: options.productCode }),
+        ...(Option.isSome(nextToken) ? { NextToken: nextToken.value } : {}),
+      }),
+      (cause: Aliyun.AliyunError) =>
+        new BillError({ message: cause.message, cause }),
+    )
+
+    const response = yield* Effect.mapError(
+      decodeResponse(payload),
+      cause =>
+        new BillError({
+          message: 'DescribeInstanceBill returned an unexpected shape',
+          cause,
+        }),
+    )
+
+    if (response.Success === false)
+      return yield* new BillError({
+        message: `DescribeInstanceBill refused the request: ${
+          response.Message ?? response.Code ?? 'no reason given'
+        }`,
+      })
+
+    // An absent or empty token both mean "no further pages".
+    const token = response.Data?.NextToken
+    return {
+      items: (response.Data?.Items ?? []).map(toLineItem),
+      nextToken:
+        token === undefined || token === ''
+          ? Option.none<string>()
+          : Option.some(token),
+    }
+  })
+
+  const instanceBill = Effect.fn('Bill.instanceBill')(function* (
+    options: InstanceBillOptions,
+  ) {
+    // TODO: turn it into paginated stream instead and render table progressively
+    const collected: Array<LineItem> = []
+    let cursor = Option.none<string>()
+
+    // DescribeInstanceBill might cap a page at some number of items and
+    // paginates by token.
+    while (true) {
+      const result = yield* page(options, cursor)
+      collected.push(...result.items)
+      if (Option.isNone(result.nextToken)) break
+      cursor = result.nextToken
+    }
+
+    return collected
+  })
+
+  return Bill.of({ instanceBill })
+}).pipe(Layer.effect(Bill))
+
+const RawItem = Schema.Struct({
+  InstanceID: Schema.String,
+  BillingItem: Schema.optionalKey(Schema.String),
+  ProductCode: Schema.String,
+  ProductName: Schema.optionalKey(Schema.String),
+  Currency: Schema.optionalKey(Schema.String),
+  Usage: Schema.optionalKey(Schema.String),
+  UsageUnit: Schema.optionalKey(Schema.String),
+  ListPrice: Schema.optionalKey(Schema.String),
+  // What the usage is actually worth, before Alibaba rounds sub-cent totals
+  // down and discounts the remainder away. This is the number worth tracking.
+  PretaxGrossAmount: Schema.Number,
+  // What ends up on the invoice after that round-down.
+  PretaxAmount: Schema.optionalKey(Schema.Number),
+})
+
+const InstanceBillResponse = Schema.Struct({
+  Code: Schema.optionalKey(Schema.String),
+  Message: Schema.optionalKey(Schema.String),
+  Success: Schema.optionalKey(Schema.Boolean),
+  Data: Schema.optionalKey(
+    Schema.Struct({
+      BillingCycle: Schema.optionalKey(Schema.String),
+      TotalCount: Schema.optionalKey(Schema.Number),
+      NextToken: Schema.optionalKey(Schema.String),
+      Items: Schema.optionalKey(Schema.Array(RawItem)),
+    }),
+  ),
+})
+
+const decodeResponse = Schema.decodeUnknownEffect(InstanceBillResponse)
+
+const toLineItem = (raw: (typeof RawItem)['Type']): LineItem => {
+  const { kind, model } = attribute(
+    raw.InstanceID,
+    raw.ProductName ?? raw.ProductCode,
+  )
+  const usage = decimalFromString(raw.Usage ?? '')
+  // Both inference products meter in units of 1K tokens; any other unit is
+  // passed through unscaled rather than silently misreported.
+  const tokens = KILO_TOKENS.test(raw.UsageUnit ?? '')
+    ? BigDecimal.multiply(usage, THOUSAND)
+    : usage
+
+  return {
+    model,
+    kind,
+    productCode: raw.ProductCode,
+    productName: raw.ProductName ?? raw.ProductCode,
+    billingItem: raw.BillingItem ?? '',
+    gross: decimalFromNumber(raw.PretaxGrossAmount),
+    charged: decimalFromNumber(raw.PretaxAmount ?? 0),
+    tokens,
+    listPrice: decimalFromString(raw.ListPrice ?? ''),
+  }
+}
+
 export class BillError extends Schema.TaggedError<BillError>()('BillError', {
   message: Schema.String,
   cause: Schema.optional(Schema.ErrorInstance()),
@@ -93,38 +230,6 @@ export const attribute = (
   return { model: instanceId === '' ? fallback : instanceId, kind: 'other' }
 }
 
-const RawItem = Schema.Struct({
-  InstanceID: Schema.String,
-  BillingItem: Schema.optionalKey(Schema.String),
-  ProductCode: Schema.String,
-  ProductName: Schema.optionalKey(Schema.String),
-  Currency: Schema.optionalKey(Schema.String),
-  Usage: Schema.optionalKey(Schema.String),
-  UsageUnit: Schema.optionalKey(Schema.String),
-  ListPrice: Schema.optionalKey(Schema.String),
-  // What the usage is actually worth, before Alibaba rounds sub-cent totals
-  // down and discounts the remainder away. This is the number worth tracking.
-  PretaxGrossAmount: Schema.Number,
-  // What ends up on the invoice after that round-down.
-  PretaxAmount: Schema.optionalKey(Schema.Number),
-})
-
-const InstanceBillResponse = Schema.Struct({
-  Code: Schema.optionalKey(Schema.String),
-  Message: Schema.optionalKey(Schema.String),
-  Success: Schema.optionalKey(Schema.Boolean),
-  Data: Schema.optionalKey(
-    Schema.Struct({
-      BillingCycle: Schema.optionalKey(Schema.String),
-      TotalCount: Schema.optionalKey(Schema.Number),
-      NextToken: Schema.optionalKey(Schema.String),
-      Items: Schema.optionalKey(Schema.Array(RawItem)),
-    }),
-  ),
-})
-
-const decodeResponse = Schema.decodeUnknownEffect(InstanceBillResponse)
-
 /** One bill line, with the model attribution already resolved. */
 export interface LineItem {
   readonly model: string
@@ -147,114 +252,9 @@ const THOUSAND = BigDecimal.fromBigInt(1000n)
 /** Both products meter in thousands: `1K tokens` here, `KTokens` there. */
 const KILO_TOKENS = /^1?k\s*tokens$/i
 
-const toLineItem = (raw: (typeof RawItem)['Type']): LineItem => {
-  const { kind, model } = attribute(
-    raw.InstanceID,
-    raw.ProductName ?? raw.ProductCode,
-  )
-  const usage = decimalFromString(raw.Usage ?? '')
-  // Both inference products meter in units of 1K tokens; any other unit is
-  // passed through unscaled rather than silently misreported.
-  const tokens = KILO_TOKENS.test(raw.UsageUnit ?? '')
-    ? BigDecimal.multiply(usage, THOUSAND)
-    : usage
-
-  return {
-    model,
-    kind,
-    productCode: raw.ProductCode,
-    productName: raw.ProductName ?? raw.ProductCode,
-    billingItem: raw.BillingItem ?? '',
-    gross: decimalFromNumber(raw.PretaxGrossAmount),
-    charged: decimalFromNumber(raw.PretaxAmount ?? 0),
-    tokens,
-    listPrice: decimalFromString(raw.ListPrice ?? ''),
-  }
-}
-
 export interface InstanceBillOptions {
   /** Billing cycle in `YYYY-MM` form. */
   readonly cycle: string
   /** Restrict to a single product code; omit to cover every product. */
   readonly productCode?: string | undefined
 }
-
-export class Bill extends Context.Service<
-  Bill,
-  {
-    instanceBill(
-      options: InstanceBillOptions,
-    ): Effect.Effect<ReadonlyArray<LineItem>, BillError>
-  }
->()('ali_summary/Bill') {}
-
-export const layer = Effect.gen(function* () {
-  const api = yield* Aliyun.AliyunApi
-
-  const page = Effect.fn('Bill.page')(function* (
-    options: InstanceBillOptions,
-    nextToken: Option.Option<string>,
-  ) {
-    const payload = yield* api
-      .call('DescribeInstanceBill', {
-        BillingCycle: options.cycle,
-        Granularity: 'MONTHLY',
-        IsBillingItem: 'true',
-        MaxResults: '300',
-        ...(options.productCode === undefined
-          ? {}
-          : { ProductCode: options.productCode }),
-        ...(Option.isSome(nextToken) ? { NextToken: nextToken.value } : {}),
-      })
-      .pipe(
-        Effect.mapError(
-          (error: Aliyun.AliyunError) =>
-            new BillError({ message: error.message, cause: error.cause }),
-        ),
-      )
-
-    const response = yield* Effect.mapError(
-      decodeResponse(payload),
-      cause =>
-        new BillError({
-          message: 'DescribeInstanceBill returned an unexpected shape',
-          cause,
-        }),
-    )
-
-    if (response.Success === false) {
-      return yield* new BillError({
-        message: `DescribeInstanceBill refused the request: ${response.Message ?? response.Code ?? 'no reason given'}`,
-      })
-    }
-
-    // An absent or empty token both mean "no further pages".
-    const token = response.Data?.NextToken
-    return {
-      items: (response.Data?.Items ?? []).map(toLineItem),
-      nextToken:
-        token === undefined || token === ''
-          ? Option.none<string>()
-          : Option.some(token),
-    }
-  })
-
-  const instanceBill = Effect.fn('Bill.instanceBill')(function* (
-    options: InstanceBillOptions,
-  ) {
-    const collected: Array<LineItem> = []
-    let cursor = Option.none<string>()
-
-    // DescribeInstanceBill caps a page at 300 items and paginates by token.
-    while (true) {
-      const result = yield* page(options, cursor)
-      collected.push(...result.items)
-      if (Option.isNone(result.nextToken)) break
-      cursor = result.nextToken
-    }
-
-    return collected
-  })
-
-  return Bill.of({ instanceBill })
-}).pipe(Layer.effect(Bill))

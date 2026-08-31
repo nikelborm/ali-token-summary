@@ -9,7 +9,6 @@
       "!**/bun.lock",
       "!**/gh-page",
       "!**/dist",
-      // TODO: remove later?
       "!**/joiners",
       "!**/dist-types",
       "!**/build",
@@ -47,7 +46,6 @@
       "correctness": {
         "noChildrenProp": "info",
         "useJsonImportAttributes": "error",
-        // TODO: report this buggy behavior on TS Effect monorepo
         "noUndeclaredDependencies": "off",
         "noUnresolvedImports": "off"
       },

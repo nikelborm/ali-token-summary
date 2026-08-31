@@ -32,7 +32,10 @@ const passShow = (entry: string) =>
   ChildProcessSpawner.ChildProcessSpawner.use(spawner =>
     // inherit, so that gpg agent can show the password prompt
     spawner.string(
-      ChildProcess.make({ stderr: 'inherit', stdin: 'inherit' })`pass show ${entry}`,
+      ChildProcess.make({
+        stderr: 'inherit',
+        stdin: 'inherit',
+      })`pass show ${entry}`,
     ),
   ).pipe(
     // The expectation is that nothing else will be present in the file except

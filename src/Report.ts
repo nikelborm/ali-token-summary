@@ -7,8 +7,8 @@ import * as Option from 'effect/Option'
 import * as Order from 'effect/Order'
 
 import * as Bill from './Bill.ts'
+import type * as CurrencyConverter from './CurrencyConverter.ts'
 import * as Format from './Format.ts'
-import type * as Fx from './Fx.ts'
 
 export type Currency = 'usd' | 'rub' | 'both'
 
@@ -146,12 +146,12 @@ export const perMillionTokens = (
 
 const toRub = (
   usd: BigDecimal.BigDecimal,
-  rate: Fx.Rate,
+  rate: CurrencyConverter.Rate,
 ): BigDecimal.BigDecimal => BigDecimal.multiply(usd, rate.rubPerUsd)
 
 export interface RenderOptions {
   readonly currency: Currency
-  readonly rate: Option.Option<Fx.Rate>
+  readonly rate: Option.Option<CurrencyConverter.Rate>
 }
 
 const EM_DASH = '—'
@@ -231,7 +231,7 @@ export const toJson = (
   rows: ReadonlyArray<ModelTotals>,
   context: {
     readonly cycle: string
-    readonly rate: Option.Option<Fx.Rate>
+    readonly rate: Option.Option<CurrencyConverter.Rate>
   },
 ) => ({
   billingCycle: context.cycle,

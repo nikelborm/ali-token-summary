@@ -20,8 +20,8 @@ import * as Flag from 'effect/unstable/cli/Flag'
 import * as Aliyun from './Aliyun.ts'
 import * as Bill from './Bill.ts'
 import * as Credentials from './Credentials.ts'
+import * as CurrencyConverter from './CurrencyConverter.ts'
 import * as Format from './Format.ts'
-import * as Fx from './Fx.ts'
 import * as Report from './Report.ts'
 
 const BillingCycle = Schema.String.pipe(
@@ -87,19 +87,19 @@ const command = Command.make(
 
     const program = Effect.gen(function* () {
       const bill = yield* Bill.Bill
-      const fx = yield* Fx.Fx
+      const currencyConverter = yield* CurrencyConverter.CurrencyConverter
 
       // The rate is a nicety, not a dependency: a report in dollars is still
       // worth printing when every FX source is down.
       const rate =
         input.currency === 'usd'
-          ? Effect.succeed(Option.none<Fx.Rate>())
-          : fx.usdToRub.pipe(
+          ? Effect.succeed(Option.none<CurrencyConverter.Rate>())
+          : currencyConverter.usdToRub.pipe(
               Effect.map(Option.some),
               Effect.catch(error =>
                 Effect.logWarning(
                   `No exchange rate available (${error.message}); showing USD only`,
-                ).pipe(Effect.as(Option.none<Fx.Rate>())),
+                ).pipe(Effect.as(Option.none<CurrencyConverter.Rate>())),
               ),
             )
 
@@ -193,7 +193,7 @@ const command = Command.make(
 )
 
 const AppLayer = Credentials.layer.pipe(
-  Layer.provideMerge(Fx.layer),
+  Layer.provideMerge(CurrencyConverter.layer),
   Layer.provideMerge(BunHttpClient.layer),
   Layer.provideMerge(BunServices.layer),
 )

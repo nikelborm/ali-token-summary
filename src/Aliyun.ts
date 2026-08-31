@@ -149,6 +149,9 @@ export const layerHttp: AliyunApiLayer = Effect.gen(function* () {
         Version: bssOpenApi.version,
         RegionId: bssOpenApi.region,
         AccessKeyId: credentials.accessKeyId,
+        // TODO: check if it has other simpler signature methods which could be
+        // easily supported by effect's builting Crypto, without reimplementing
+        // HMAC
         SignatureMethod: 'HMAC-SHA1',
         SignatureVersion: '1.0',
         SignatureNonce: nonce,
@@ -190,12 +193,11 @@ export const layerHttp: AliyunApiLayer = Effect.gen(function* () {
       )
 
       if (response.status >= 400)
-        // Alibaba returns a JSON error envelope; surfacing it verbatim is far
-        // more useful than the status code alone.
-        return yield* new AliyunError({
-          message: `${action} failed with HTTP ${response.status}`,
-          body,
-        })
+        // We can't do anything about it, in the sense that we need to expose
+        // the same interface from the CLI too, we cannot throw here, besides,
+        // most of the time the API has message and status embedded directly
+        // into the response
+        yield* Effect.logError(`${action} failed with HTTP ${response.status}`)
 
       return body
     },
