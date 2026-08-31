@@ -4,17 +4,16 @@
  * Environment first, then the password store. The two `pass` lookups are
  * independent, so they run concurrently.
  */
-import {
-  Config,
-  Context,
-  Effect,
-  Layer,
-  Option,
-  Redacted,
-  Schema,
-  String as Str,
-} from 'effect'
-import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process'
+import * as Config from 'effect/Config'
+import * as Context from 'effect/Context'
+import * as Effect from 'effect/Effect'
+import * as Layer from 'effect/Layer'
+import * as Option from 'effect/Option'
+import * as Redacted from 'effect/Redacted'
+import * as Schema from 'effect/Schema'
+import * as Str from 'effect/String'
+import * as ChildProcess from 'effect/unstable/process/ChildProcess'
+import * as ChildProcessSpawner from 'effect/unstable/process/ChildProcessSpawner'
 
 export class CredentialsError extends Schema.TaggedError<CredentialsError>()(
   'CredentialsError',

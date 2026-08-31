@@ -1,11 +1,14 @@
 /**
  * Aggregation of bill lines into a per-model report, and its rendering.
  */
-import { Array as Arr, BigDecimal, Option, Order } from 'effect'
+import * as Arr from 'effect/Array'
+import * as BigDecimal from 'effect/BigDecimal'
+import * as Option from 'effect/Option'
+import * as Order from 'effect/Order'
 
-import { type LineItem, ZERO } from './Bill.ts'
+import * as Bill from './Bill.ts'
 import * as Format from './Format.ts'
-import type { Rate } from './Fx.ts'
+import type * as Fx from './Fx.ts'
 
 export type Currency = 'usd' | 'rub' | 'both'
 
@@ -36,12 +39,12 @@ interface Accumulator {
 
 const emptyAccumulator = (): Accumulator => ({
   products: new Set(),
-  gross: ZERO,
-  charged: ZERO,
-  inputTokens: ZERO,
-  outputTokens: ZERO,
-  cacheTokens: ZERO,
-  otherTokens: ZERO,
+  gross: Bill.ZERO,
+  charged: Bill.ZERO,
+  inputTokens: Bill.ZERO,
+  outputTokens: Bill.ZERO,
+  cacheTokens: Bill.ZERO,
+  otherTokens: Bill.ZERO,
 })
 
 /** Largest spend first; ties broken by name so runs are reproducible. */
@@ -51,7 +54,7 @@ const byCost: Order.Order<ModelTotals> = (self, that) => {
 }
 
 export const aggregate = (
-  items: Iterable<LineItem>,
+  items: Iterable<Bill.LineItem>,
 ): ReadonlyArray<ModelTotals> => {
   const accumulators = new Map<string, Accumulator>()
 
@@ -141,15 +144,40 @@ export const perMillionTokens = (
         row.totalTokens,
       )
 
-const toRub = (usd: BigDecimal.BigDecimal, rate: Rate): BigDecimal.BigDecimal =>
-  BigDecimal.multiply(usd, rate.rubPerUsd)
+const toRub = (
+  usd: BigDecimal.BigDecimal,
+  rate: Fx.Rate,
+): BigDecimal.BigDecimal => BigDecimal.multiply(usd, rate.rubPerUsd)
 
 export interface RenderOptions {
   readonly currency: Currency
-  readonly rate: Option.Option<Rate>
+  readonly rate: Option.Option<Fx.Rate>
 }
 
 const EM_DASH = '—'
+
+/**
+ * One rendered row. The token columns are always present; the money columns
+ * and `untyped` depend on the requested currency and on the data, so they are
+ * optional rather than `string | undefined` - a column that does not apply is
+ * absent, and `Console.table` never prints a header for it.
+ */
+export interface TableRow {
+  readonly product: string
+  readonly in: string
+  readonly out: string
+  readonly cached: string
+  readonly untyped?: string
+  readonly USD?: string
+  readonly RUB?: string
+  readonly 'USD/1M'?: string
+  readonly 'RUB/1M'?: string
+}
+
+/** Keyed by model name, which `Console.table` shows as the index column. */
+export type Table = Record<string, TableRow>
+
+type MutableTableRow = { -readonly [K in keyof TableRow]: TableRow[K] }
 
 /**
  * Shapes the report for `Console.table`: a record keyed by model name, so the
@@ -159,19 +187,17 @@ const EM_DASH = '—'
 export const toTable = (
   rows: ReadonlyArray<ModelTotals>,
   options: RenderOptions,
-): Record<string, Record<string, string>> => {
+): Table => {
   const showUsd = options.currency !== 'rub'
   const showRub = options.currency !== 'usd' && Option.isSome(options.rate)
   // Only products outside Model Studio inference produce untyped usage, so the
   // column would be a wall of zeroes for most accounts.
   const showOther = rows.some(row => !BigDecimal.isZero(row.otherTokens))
 
-  const table: Record<string, Record<string, string>> = {}
+  const table: Record<string, TableRow> = {}
 
   for (const row of rows) {
-    const cells: Record<'product' | 'in' | 'out' | 'cached', string> & {
-      [k in 'untyped' | 'USD' | 'RUB' | 'USD/1M' | 'RUB/1M']?: string
-    } = {
+    const cells: MutableTableRow = {
       product: row.products.join(', '),
       in: Format.count(row.inputTokens),
       out: Format.count(row.outputTokens),
@@ -205,7 +231,7 @@ export const toJson = (
   rows: ReadonlyArray<ModelTotals>,
   context: {
     readonly cycle: string
-    readonly rate: Option.Option<Rate>
+    readonly rate: Option.Option<Fx.Rate>
   },
 ) => ({
   billingCycle: context.cycle,

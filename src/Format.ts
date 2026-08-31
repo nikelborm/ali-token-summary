@@ -12,7 +12,7 @@
  * after a currency multiplication. `toPlainString` below is exponent-free by
  * construction.
  */
-import { BigDecimal } from 'effect'
+import * as BigDecimal from 'effect/BigDecimal'
 
 /** Substituted for whatever group separator the locale would have used. */
 const GROUP_SEPARATOR = ' '

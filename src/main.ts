@@ -1,21 +1,23 @@
 /**
  * `ali-summary` - per-model Alibaba Cloud Model Studio spend, at full precision.
  */
-import { BunHttpClient, BunRuntime, BunServices } from '@effect/platform-bun'
-import {
-  BigDecimal,
-  Console,
-  DateTime,
-  Effect,
-  identity,
-  Layer,
-  Option,
-  References,
-  Schema,
-} from 'effect'
-import { Argument, Command, Flag } from 'effect/unstable/cli'
+import * as BunHttpClient from '@effect/platform-bun/BunHttpClient'
+import * as BunRuntime from '@effect/platform-bun/BunRuntime'
+import * as BunServices from '@effect/platform-bun/BunServices'
+import * as BigDecimal from 'effect/BigDecimal'
+import * as Console from 'effect/Console'
+import * as DateTime from 'effect/DateTime'
+import * as Effect from 'effect/Effect'
+import * as Fn from 'effect/Function'
+import * as Layer from 'effect/Layer'
+import * as Option from 'effect/Option'
+import * as References from 'effect/References'
+import * as Schema from 'effect/Schema'
+import * as Argument from 'effect/unstable/cli/Argument'
+import * as Command from 'effect/unstable/cli/Command'
+import * as Flag from 'effect/unstable/cli/Flag'
 
-import { type AliyunApiLayer, layerCli, layerHttp } from './Aliyun.ts'
+import * as Aliyun from './Aliyun.ts'
 import * as Bill from './Bill.ts'
 import * as Credentials from './Credentials.ts'
 import * as Format from './Format.ts'
@@ -188,7 +190,7 @@ const command = Command.make(
       // In JSON mode stdout must stay parseable, so warnings are dropped.
       quiet
         ? Effect.provideService(References.MinimumLogLevel, 'None')
-        : identity,
+        : Fn.identity,
     )
   }),
 ).pipe(
@@ -199,8 +201,8 @@ const command = Command.make(
   // The one layer the command line chooses, so the one layer built fresh per
   // invocation and torn down with the handler.
   Command.provide(
-    ({ transport }): AliyunApiLayer =>
-      transport === 'cli' ? layerCli : layerHttp,
+    ({ transport }): Aliyun.AliyunApiLayer =>
+      transport === 'cli' ? Aliyun.layerCli : Aliyun.layerHttp,
     { local: true },
   ),
 )

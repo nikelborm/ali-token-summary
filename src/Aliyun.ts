@@ -12,19 +12,20 @@
  * Both target `bssOpenApi` and hand back the parsed-but-unvalidated JSON
  * payload; validating it is the caller's job, via Schema.
  */
-import {
-  Context,
-  Crypto,
-  DateTime,
-  Effect,
-  Layer,
-  Redacted,
-  Schema,
-} from 'effect'
-import { HttpClient, HttpClientRequest } from 'effect/unstable/http'
-import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process'
+import * as Context from 'effect/Context'
+import * as Crypto from 'effect/Crypto'
+import * as DateTime from 'effect/DateTime'
+import * as Effect from 'effect/Effect'
+import * as Layer from 'effect/Layer'
+import * as Order from 'effect/Order'
+import * as Redacted from 'effect/Redacted'
+import * as Schema from 'effect/Schema'
+import * as HttpClient from 'effect/unstable/http/HttpClient'
+import * as HttpClientRequest from 'effect/unstable/http/HttpClientRequest'
+import * as ChildProcess from 'effect/unstable/process/ChildProcess'
+import * as ChildProcessSpawner from 'effect/unstable/process/ChildProcessSpawner'
 
-import { Credentials } from './Credentials.ts'
+import * as Credentials from './Credentials.ts'
 
 export class AliyunError extends Schema.TaggedError<AliyunError>()(
   'AliyunError',
@@ -65,9 +66,9 @@ export const percentEncode = (value: string): string =>
     .replace(/\*/g, '%2A')
 
 export const canonicalQuery = (parameters: Record<string, string>): string =>
-  Object.keys(parameters)
-    .sort()
-    .map(key => `${percentEncode(key)}=${percentEncode(parameters[key]!)}`)
+  Object.entries(parameters)
+    .sort(([left], [right]) => Order.String(left, right))
+    .map(([key, value]) => `${percentEncode(key)}=${percentEncode(value)}`)
     .join('&')
 
 const hmacSha1Base64 = (key: string, message: string): string => {
@@ -105,7 +106,7 @@ export class AliyunApi extends Context.Service<
 export type AliyunApiLayer = Layer.Layer<
   AliyunApi,
   never,
-  | Credentials
+  | Credentials.Credentials
   | Crypto.Crypto
   | HttpClient.HttpClient
   | ChildProcessSpawner.ChildProcessSpawner
@@ -122,8 +123,8 @@ const parseJson = (action: string, body: string) =>
   })
 
 /** Signs the request locally and sends it straight to the service. */
-export const layerHttp = Effect.gen(function* () {
-  const credentials = yield* Credentials
+export const layerHttp: AliyunApiLayer = Effect.gen(function* () {
+  const credentials = yield* Credentials.Credentials
   const client = yield* HttpClient.HttpClient
   const crypto = yield* Crypto.Crypto
 
@@ -204,8 +205,8 @@ export const layerHttp = Effect.gen(function* () {
  * Delegates to the `aliyun` binary. Credentials go through the environment
  * rather than argv, so they stay out of the process table.
  */
-export const layerCli = Effect.gen(function* () {
-  const credentials = yield* Credentials
+export const layerCli: AliyunApiLayer = Effect.gen(function* () {
+  const credentials = yield* Credentials.Credentials
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
 
   const call = Effect.fn('AliyunApi.cli')(function* (

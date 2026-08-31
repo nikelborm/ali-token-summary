@@ -7,20 +7,16 @@
  * `stale` flag exists so the report can say so rather than quietly implying the
  * rate is current. If CBR is unreachable, a market aggregate stands in.
  */
-import {
-  BigDecimal,
-  Context,
-  DateTime,
-  Effect,
-  Layer,
-  Option,
-  Schema,
-} from 'effect'
-import {
-  HttpClient,
-  HttpClientRequest,
-  HttpIncomingMessage,
-} from 'effect/unstable/http'
+import * as BigDecimal from 'effect/BigDecimal'
+import * as Context from 'effect/Context'
+import * as DateTime from 'effect/DateTime'
+import * as Effect from 'effect/Effect'
+import * as Layer from 'effect/Layer'
+import * as Option from 'effect/Option'
+import * as Schema from 'effect/Schema'
+import * as HttpClient from 'effect/unstable/http/HttpClient'
+import * as HttpClientRequest from 'effect/unstable/http/HttpClientRequest'
+import * as HttpIncomingMessage from 'effect/unstable/http/HttpIncomingMessage'
 
 export class FxError extends Schema.TaggedError<FxError>()('FxError', {
   message: Schema.String,

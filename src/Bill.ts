@@ -11,9 +11,14 @@
  * so the token-type segment is located by pattern and the model read from the
  * position before it, rather than by a fixed index.
  */
-import { BigDecimal, Context, Effect, Layer, Option, Schema } from 'effect'
+import * as BigDecimal from 'effect/BigDecimal'
+import * as Context from 'effect/Context'
+import * as Effect from 'effect/Effect'
+import * as Layer from 'effect/Layer'
+import * as Option from 'effect/Option'
+import * as Schema from 'effect/Schema'
 
-import { AliyunApi, type AliyunError } from './Aliyun.ts'
+import * as Aliyun from './Aliyun.ts'
 
 export class BillError extends Schema.TaggedError<BillError>()('BillError', {
   message: Schema.String,
@@ -59,8 +64,13 @@ export const attribute = (
 ): Attribution => {
   const segments = instanceId.split(';')
   const index = segments.findIndex(segment => TOKEN_SEGMENT.test(segment))
-  if (index > 0) {
-    return { model: segments[index - 1]!, kind: classify(segments[index]!) }
+  // Both reads are in bounds whenever a token segment was found after the
+  // first position, but they are checked rather than asserted so an unexpected
+  // shape falls through to the same fallback as an unrecognised id.
+  const model = index > 0 ? segments[index - 1] : undefined
+  const tokenSegment = index > 0 ? segments[index] : undefined
+  if (model !== undefined && tokenSegment !== undefined) {
+    return { model, kind: classify(tokenSegment) }
   }
   return { model: instanceId === '' ? fallback : instanceId, kind: 'other' }
 }
@@ -157,7 +167,7 @@ export class Bill extends Context.Service<
 >()('ali_summary/Bill') {}
 
 export const layer = Effect.gen(function* () {
-  const api = yield* AliyunApi
+  const api = yield* Aliyun.AliyunApi
 
   const page = Effect.fn('Bill.page')(function* (
     options: InstanceBillOptions,
@@ -176,7 +186,7 @@ export const layer = Effect.gen(function* () {
       })
       .pipe(
         Effect.mapError(
-          (error: AliyunError) =>
+          (error: Aliyun.AliyunError) =>
             new BillError({ message: error.message, cause: error.cause }),
         ),
       )
