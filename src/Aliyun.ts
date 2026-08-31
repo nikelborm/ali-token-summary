@@ -12,10 +12,12 @@
  * Both target `bssOpenApi` and hand back the parsed-but-unvalidated JSON
  * payload; validating it is the caller's job, via Schema.
  */
+import * as EArray from 'effect/Array'
 import * as Context from 'effect/Context'
 import * as Crypto from 'effect/Crypto'
 import * as DateTime from 'effect/DateTime'
 import * as Effect from 'effect/Effect'
+import { flow } from 'effect/Function'
 import * as Layer from 'effect/Layer'
 import * as Order from 'effect/Order'
 import type * as PlatformError from 'effect/PlatformError'
@@ -54,11 +56,12 @@ export const bssOpenApi: Endpoint = {
   product: 'bssopenapi',
 }
 
+// TODO: find sources for this
 /**
  * Alibaba's canonicalisation treats only `A-Za-z0-9-_.~` as unreserved, which
  * is a slightly smaller set than `encodeURIComponent` leaves alone.
  */
-export const percentEncode = (value: string): string =>
+export const alibabaEncodeURIComponent = (value: string): string =>
   encodeURIComponent(value)
     .replaceAll('!', '%21')
     .replaceAll("'", '%27')
@@ -66,13 +69,16 @@ export const percentEncode = (value: string): string =>
     .replaceAll(')', '%29')
     .replaceAll('*', '%2A')
 
-export const canonicalQuery = (parameters: Record<string, string>): string =>
+export const canonicalizeQuery = (parameters: Record<string, string>): string =>
   Object.entries(parameters)
     .sort(([left], [right]) => Order.String(left, right))
-    .map(([key, value]) => `${percentEncode(key)}=${percentEncode(value)}`)
+    .map(flow(EArray.map(alibabaEncodeURIComponent), EArray.join('=')))
     .join('&')
 
-const hmacSha1Base64 = (key: string, message: string): Effect.Effect<string> =>
+const makeHmacSha1Base64 = (
+  key: string,
+  message: string,
+): Effect.Effect<string> =>
   Effect.sync(() => {
     const hasher = new Bun.CryptoHasher('sha1', key)
     hasher.update(message)
@@ -83,11 +89,11 @@ const hmacSha1Base64 = (key: string, message: string): Effect.Effect<string> =>
 export const sign = (
   secret: string,
   method: string,
-  parameters: Record<string, string>,
+  canonicalQuery: string,
 ): Effect.Effect<string, PlatformError.PlatformError, Crypto.Crypto> =>
-  hmacSha1Base64(
+  makeHmacSha1Base64(
     `${secret}&`,
-    `${method}&${percentEncode('/')}&${percentEncode(canonicalQuery(parameters))}`,
+    `${method}&${alibabaEncodeURIComponent('/')}&${alibabaEncodeURIComponent(canonicalQuery)}`,
   )
 
 export class AliyunApi extends Context.Service<
@@ -158,18 +164,18 @@ export const layerHttp: AliyunApiLayer = Effect.gen(function* () {
         Timestamp: timestamp,
       }
 
-      const query = canonicalQuery(payload)
+      const canonicalQuery = canonicalizeQuery(payload)
       const signature = yield* sign(
         Redacted.value(credentials.accessKeySecret),
         'GET',
-        payload,
+        canonicalQuery,
       ).pipe(
         Effect.mapError(
           cause =>
             new AliyunError({ message: 'Could not sign the request', cause }),
         ),
       )
-      const url = `https://${bssOpenApi.host}/?${query}&Signature=${percentEncode(signature)}`
+      const url = `https://${bssOpenApi.host}/?${canonicalQuery}&Signature=${alibabaEncodeURIComponent(signature)}`
 
       const response = yield* HttpClientRequest.get(url).pipe(
         client.execute,

@@ -21,7 +21,7 @@ const documentedRequest = {
 }
 
 test('canonicalises parameters in sorted order with the strict unreserved set', () => {
-  expect(Aliyun.canonicalQuery(documentedRequest)).toBe(
+  expect(Aliyun.canonicalizeQuery(documentedRequest)).toBe(
     'AccessKeyId=testid&Action=DescribeRegions&Format=XML&SignatureMethod=HMAC-SHA1' +
       '&SignatureNonce=3ee8c1b8-83d3-44af-a94f-4e0ad82fd6cf&SignatureVersion=1.0' +
       '&Timestamp=2016-02-23T12%3A46%3A24Z&Version=2014-05-26',
@@ -38,6 +38,8 @@ it.effect('reproduces the signature from the documented example', () =>
 
 test('escapes the characters encodeURIComponent leaves alone', () => {
   // Alibaba treats only A-Za-z0-9-_.~ as unreserved.
-  expect(Aliyun.percentEncode("a!b'c(d)e*f")).toBe('a%21b%27c%28d%29e%2Af')
-  expect(Aliyun.percentEncode('~-_.')).toBe('~-_.')
+  expect(Aliyun.alibabaEncodeURIComponent("a!b'c(d)e*f")).toBe(
+    'a%21b%27c%28d%29e%2Af',
+  )
+  expect(Aliyun.alibabaEncodeURIComponent('~-_.')).toBe('~-_.')
 })
