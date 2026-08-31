@@ -1,6 +1,6 @@
 /**
  * A trimmed copy of a real `DescribeInstanceBill` response, keeping every
- * `InstanceID` shape the account actually produces - including the six-segment
+ * `InstanceID` shape the account actually produces, including the six-segment
  * `qwen3.8-flash` variant with its empty penultimate field.
  */
 export const describeInstanceBill = {
@@ -64,11 +64,48 @@ export const describeInstanceBill = {
   },
 }
 
-/** A marketplace line, whose InstanceID follows no known convention. */
-export const marketplaceItem = {
-  ...item('mp-instance-8842', '0.4', '0.0046', 1.8388e-3),
-  ProductCode: 'mpintl-mt9-dt26',
-  ProductName: 'Third-Party Services in Marketplace',
+/**
+ * The two Marketplace lines for a resold third-party model. The InstanceID
+ * names the model itself, `ZHIPU/GLM-5.3`, pluralises the token type, and
+ * meters in `KTokens` rather than `1K tokens`.
+ */
+export const marketplaceItems = [
+  marketplace(
+    '6000000200348;ZHIPU/GLM-5.3;1110389;ws-9h4296dos6ll46s2;ap-southeast-1;international;input_tokens;intlcmgjllm10006104-KTokens-4',
+    '0.072',
+    '0.0014',
+    1.008e-4,
+  ),
+  marketplace(
+    '6000000200348;ZHIPU/GLM-5.3;1110389;ws-9h4296dos6ll46s2;ap-southeast-1;international;output_tokens;intlcmgjllm10006104-KTokens-5',
+    '0.395',
+    '0.0044',
+    1.738e-3,
+  ),
+]
+
+/** A line from some other product, whose InstanceID follows no convention. */
+export const opaqueItem = {
+  ...item('i-t4n8842xkq', '1', '0.0046', 4.6e-3),
+  ProductCode: 'ecs',
+  ProductName: 'Elastic Compute Service',
+  BillingItem: 'Instance',
+  UsageUnit: 'Hour',
+}
+
+function marketplace(
+  instanceId: string,
+  usage: string,
+  listPrice: string,
+  gross: number,
+) {
+  return {
+    ...item(instanceId, usage, listPrice, gross),
+    ProductCode: 'mpintl-mt9-dt26',
+    ProductName: 'Third-Party Services in Marketplace',
+    BillingItem: 'KTokens',
+    UsageUnit: 'KTokens',
+  }
 }
 
 function item(

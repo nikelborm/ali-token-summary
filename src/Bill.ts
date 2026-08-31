@@ -2,14 +2,23 @@
  * Model Studio bill retrieval and the domain model it decodes into.
  *
  * The interesting field is `InstanceID`, which is where Alibaba hides the model
- * name. For Model Studio inference it looks like:
+ * name. Two products bill for inference, and they write it differently.
+ *
+ * Model Studio (`sfm`) leaves the model in the segment ahead of the token type:
  *
  *     1110389;ws-9h4296dos6ll46s2;glm-5.2-fast-preview;input_token;0
  *     ^owner  ^workspace          ^model               ^token type ^
  *
- * The segment count is not stable - some models emit a sixth, empty segment -
- * so the token-type segment is located by pattern and the model read from the
- * position before it, rather than by a fixed index.
+ * Marketplace (`mpintl-*`), which resells third-party models, names the model
+ * outright and qualifies it by vendor, then pluralises the token type:
+ *
+ *     6000000200348;ZHIPU/GLM-5.3;1110389;ws-9h4296dos6ll46s2;ap-southeast-1;international;output_tokens;intlcmgjllm10006104-KTokens-5
+ *     ^order        ^vendor/model ^owner  ^workspace          ^region        ^channel      ^token type   ^commodity
+ *
+ * Neither segment count is stable - some Model Studio models emit a sixth,
+ * empty segment - so nothing is read by fixed index. The token type is found
+ * by pattern, and the model is either the vendor-qualified segment or the one
+ * before the token type.
  */
 import * as BigDecimal from 'effect/BigDecimal'
 import * as Context from 'effect/Context'
@@ -37,7 +46,11 @@ const decimalFromString = (value: string): BigDecimal.BigDecimal =>
 
 export type TokenKind = 'input' | 'output' | 'cache' | 'other'
 
-const TOKEN_SEGMENT = /^(input|output)_token(_cache)?$/
+/** The token type, in both spellings: `input_token`, `output_tokens`. */
+const TOKEN_SEGMENT = /^(input|output)_tokens?(_cache)?$/
+
+/** `ZHIPU/GLM-5.3` - only Marketplace qualifies a model by its vendor. */
+const VENDOR_QUALIFIED = /^[^/]+\/[^/]+$/
 
 const classify = (segment: string): TokenKind =>
   segment.endsWith('_cache')
@@ -54,9 +67,9 @@ export interface Attribution {
 /**
  * Recovers the model name and token type from an `InstanceID`.
  *
- * Products outside Model Studio inference use an unrelated `InstanceID` shape,
- * so anything unrecognised falls back to a caller-supplied label instead of
- * being silently dropped from the report.
+ * Products that do not bill for inference at all use an unrelated shape, so
+ * anything unrecognised keeps its raw identifier - or a caller-supplied label
+ * when even that is empty - instead of being silently dropped from the report.
  */
 export const attribute = (
   instanceId: string,
@@ -64,13 +77,18 @@ export const attribute = (
 ): Attribution => {
   const segments = instanceId.split(';')
   const index = segments.findIndex(segment => TOKEN_SEGMENT.test(segment))
-  // Both reads are in bounds whenever a token segment was found after the
-  // first position, but they are checked rather than asserted so an unexpected
+  const tokenSegment = index === -1 ? undefined : segments[index]
+  // Marketplace states the model; Model Studio puts it ahead of the token
+  // type. The index read is checked rather than asserted so an unexpected
   // shape falls through to the same fallback as an unrecognised id.
-  const model = index > 0 ? segments[index - 1] : undefined
-  const tokenSegment = index > 0 ? segments[index] : undefined
-  if (model !== undefined && tokenSegment !== undefined) {
-    return { model, kind: classify(tokenSegment) }
+  const model =
+    segments.find(segment => VENDOR_QUALIFIED.test(segment)) ??
+    (index > 0 ? segments[index - 1] : undefined)
+
+  if (model !== undefined && model !== '' && tokenSegment !== undefined) {
+    // Model ids are canonically lower case; only the Marketplace catalogue
+    // shouts, and one row in caps among the rest just reads as noise.
+    return { model: model.toLowerCase(), kind: classify(tokenSegment) }
   }
   return { model: instanceId === '' ? fallback : instanceId, kind: 'other' }
 }
@@ -126,16 +144,20 @@ export interface LineItem {
 
 const THOUSAND = BigDecimal.fromBigInt(1000n)
 
+/** Both products meter in thousands: `1K tokens` here, `KTokens` there. */
+const KILO_TOKENS = /^1?k\s*tokens$/i
+
 const toLineItem = (raw: (typeof RawItem)['Type']): LineItem => {
   const { kind, model } = attribute(
     raw.InstanceID,
     raw.ProductName ?? raw.ProductCode,
   )
   const usage = decimalFromString(raw.Usage ?? '')
-  // Model Studio meters in units of 1K tokens; anything else is passed through
-  // unscaled rather than silently misreported.
-  const tokens =
-    raw.UsageUnit === '1K tokens' ? BigDecimal.multiply(usage, THOUSAND) : usage
+  // Both inference products meter in units of 1K tokens; any other unit is
+  // passed through unscaled rather than silently misreported.
+  const tokens = KILO_TOKENS.test(raw.UsageUnit ?? '')
+    ? BigDecimal.multiply(usage, THOUSAND)
+    : usage
 
   return {
     model,

@@ -10,6 +10,7 @@
   "dependencies": {
     "@biomejs/biome": "^2.5.11",
     "@effect/platform-bun": "^4.0.0-rc.112",
+    "@effect/vitest": "^4.0.0-rc.112",
     "@evadev/tsconfig": "^1.0.3",
     "@rollup/plugin-commonjs": "^29.0.3",
     "@rollup/plugin-json": "^6.1.0",

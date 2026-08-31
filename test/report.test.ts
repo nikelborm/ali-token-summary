@@ -29,6 +29,16 @@ const fetchRows = (payload: unknown) =>
     }).pipe(Effect.provide(withPayload(payload))),
   )
 
+const payloadWith = (extra: ReadonlyArray<unknown>) => ({
+  ...Fixtures.describeInstanceBill,
+  Data: {
+    ...Fixtures.describeInstanceBill.Data,
+    Items: [...Fixtures.describeInstanceBill.Data.Items, ...extra],
+  },
+})
+
+const withMarketplace = payloadWith(Fixtures.marketplaceItems)
+
 /** Narrowing lookups: a missing row is a test failure with a name attached. */
 const rowAt = (
   rows: ReadonlyArray<Report.ModelTotals>,
@@ -83,11 +93,40 @@ describe('attribute', () => {
     ).toBe('cache')
   })
 
+  test('reads the vendor-qualified model a marketplace line states outright', () => {
+    // The segment before the token type is `international`, not a model, so
+    // the vendor-qualified segment has to win over positional reading.
+    expect(
+      Bill.attribute(
+        '6000000200348;ZHIPU/GLM-5.3;1110389;ws-x;ap-southeast-1;international;output_tokens;intlcmgjllm10006104-KTokens-5',
+        '?',
+      ),
+    ).toEqual({
+      model: 'zhipu/glm-5.3',
+      kind: 'output',
+    })
+  })
+
+  test('accepts the plural token type marketplace lines use', () => {
+    expect(
+      Bill.attribute(
+        '6000000200348;ZHIPU/GLM-5.3;1110389;ws-x;ap-southeast-1;international;input_tokens;c-KTokens-4',
+        '?',
+      ).kind,
+    ).toBe('input')
+  })
+
   test('keeps unrecognised instance ids rather than dropping the line', () => {
-    expect(Bill.attribute('mp-instance-8842', 'Marketplace')).toEqual({
-      model: 'mp-instance-8842',
+    expect(Bill.attribute('i-t4n8842xkq', 'Elastic Compute Service')).toEqual({
+      model: 'i-t4n8842xkq',
       kind: 'other',
     })
+  })
+
+  test('labels a line by its product when it carries no instance id at all', () => {
+    expect(Bill.attribute('', 'Elastic Compute Service').model).toBe(
+      'Elastic Compute Service',
+    )
   })
 })
 
@@ -115,29 +154,31 @@ describe('aggregate', () => {
   })
 
   test('carries marketplace lines through alongside Model Studio ones', async () => {
-    const payload = {
-      ...Fixtures.describeInstanceBill,
-      Data: {
-        ...Fixtures.describeInstanceBill.Data,
-        Items: [
-          ...Fixtures.describeInstanceBill.Data.Items,
-          Fixtures.marketplaceItem,
-        ],
-      },
-    }
-    const rows = await fetchRows(payload)
+    const rows = await fetchRows(withMarketplace)
     const total = Report.totalOf(rows)
 
+    // The most expensive model this cycle, and a marketplace one at that.
     const top = rowAt(rows, 0)
+    expect(top.model).toBe('zhipu/glm-5.3')
+    expect(top.products).toEqual(['mpintl-mt9-dt26'])
 
-    // Its usage carries no recognisable token type, but must still be counted.
-    expect(Format.toPlainString(top.otherTokens)).toBe('400')
-    expect(
-      Format.money(Option.getOrThrow(Report.perMillionTokens(top)), 4),
-    ).toBe('4.597')
-    expect(top.model).toBe('mp-instance-8842')
+    // `KTokens` scales the same way `1K tokens` does, so the usage is typed
+    // and counted rather than landing in the untyped column.
+    expect(Format.toPlainString(top.inputTokens)).toBe('72')
+    expect(Format.toPlainString(top.outputTokens)).toBe('395')
+    expect(Format.toPlainString(top.otherTokens)).toBe('0')
+
     expect(Format.toPlainString(total.gross)).toBe('0.002802')
     expect(total.products).toEqual(['mpintl-mt9-dt26', 'sfm'])
+  })
+
+  test('counts usage from a line it cannot attribute as untyped', async () => {
+    const rows = await fetchRows(payloadWith([Fixtures.opaqueItem]))
+    const opaque = rowOf(rows, 'i-t4n8842xkq')
+
+    // Hours are not tokens, so the usage passes through unscaled.
+    expect(Format.toPlainString(opaque.otherTokens)).toBe('1')
+    expect(opaque.products).toEqual(['ecs'])
   })
 })
 
