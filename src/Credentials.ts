@@ -39,18 +39,22 @@ const getParsedEnvOrFallbackToPassStore = (conf: {
   Config.schema(Schema.String, conf.envName).pipe(
     Config.option,
     Effect.flatMapEager(Effect.fromOption),
-    Effect.catchTag('NoSuchElementError', () => passShow(conf.passEntryPath)),
+    Effect.catchTag('NoSuchElementError', () =>
+      Effect.logWarning(
+        `Env var ${conf.envName} not found, attempting to fallback to Unix Password Store`,
+      ).pipe(Effect.andThen(passShow(conf.passEntryPath))),
+    ),
     Effect.catchTag(
       'ConfigError',
       CredentialsError.passthroughCause(
-        `Failed to parse environment config entry`,
+        `Failed to parse ${conf.envName} env var content (not a string???)`,
       ),
     ),
     Effect.flatMapEager(Schema.decodeEffect(NonEmptyTrimmedString)),
     Effect.catchTag(
       'SchemaError',
       CredentialsError.passthroughCause(
-        `Failed to parse decrypted password-store entry`,
+        `Failed to parse the credential from either pass or env (${conf.envName})`,
       ),
     ),
   )
