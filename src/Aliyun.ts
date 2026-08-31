@@ -44,7 +44,7 @@ export class AliyunApi extends Context.Service<
     call(
       action: string,
       parameters: Record<string, string>,
-    ): Effect.Effect<Schema.Json, AliyunError, Credentials.Credentials>
+    ): Effect.Effect<Schema.Json, AliyunError>
   }
 >()('ali_summary/AliyunApi') {}
 
@@ -52,6 +52,7 @@ export class AliyunApi extends Context.Service<
 export const layerHttp = Effect.gen(function* () {
   const client = yield* HttpClient.HttpClient
   const crypto = yield* Crypto.Crypto
+  const acquireCredentials = yield* Credentials.Credentials
 
   const call = Effect.fn('AliyunApi.http')(function* (
     action: string,
@@ -59,7 +60,10 @@ export const layerHttp = Effect.gen(function* () {
   ) {
     const { credentials, nonce, timestamp } = yield* Effect.all(
       {
-        credentials: Credentials.Credentials,
+        credentials: Effect.mapError(
+          acquireCredentials,
+          AliyunError.passthroughCause('Cannot aqcuire credentials'),
+        ),
         // Replay protection: the service rejects a nonce it has seen before.
         nonce: Effect.mapError(
           crypto.randomUUIDv4,
@@ -133,12 +137,17 @@ const decodeJson = Schema.Json.pipe(Schema.fromJsonString, Schema.decodeEffect)
  */
 export const layerCli = Effect.gen(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+  const acquireCredentials = yield* Credentials.Credentials
 
   const call = Effect.fn('AliyunApi.cli')(function* (
     action: string,
     parameters: Record<string, string>,
   ) {
-    const credentials = yield* Credentials.Credentials
+    const credentials = yield* Effect.mapError(
+      acquireCredentials,
+      AliyunError.passthroughCause(`Failed to acquire credentials`),
+    )
+
     const args = [
       bssOpenApi.product,
       action,

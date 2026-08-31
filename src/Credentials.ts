@@ -16,10 +16,13 @@ import * as ChildProcessSpawner from 'effect/unstable/process/ChildProcessSpawne
 
 export class Credentials extends Context.Service<
   Credentials,
-  {
-    readonly accessKeyId: string
-    readonly accessKeySecret: Redacted.Redacted<string>
-  }
+  Effect.Effect<
+    {
+      readonly accessKeyId: string
+      readonly accessKeySecret: Redacted.Redacted<string>
+    },
+    CredentialsError
+  >
 >()('ali_summary/Credentials') {}
 
 const ENV_KEY_ID = 'ALIBABA_CLOUD_ACCESS_KEY_ID'
@@ -104,24 +107,30 @@ const AccessKeySecret = NonEmptyTrimmedString.pipe(
   ),
 )
 
-export const layer = Effect.all(
-  {
-    accessKeyId: getParsedEnvOrFallbackToPassStore({
-      envName: ENV_KEY_ID,
-      passEntryPath: PASS_KEY_ID,
-      schema: AccessKeyId,
-    }),
-    accessKeySecret: Effect.map(
-      getParsedEnvOrFallbackToPassStore({
-        envName: ENV_KEY_SECRET,
-        passEntryPath: PASS_KEY_SECRET,
-        schema: AccessKeySecret,
-      }),
-      Redacted.make,
-    ),
-  },
-  { concurrency: 2 },
-).pipe(Layer.effect(Credentials))
+export const layer = Layer.effect(
+  Credentials,
+  // biome-ignore lint/correctness/useHookAtTopLevel: dumbass
+  ChildProcessSpawner.ChildProcessSpawner.useSync(spawner =>
+    Effect.all(
+      {
+        accessKeyId: getParsedEnvOrFallbackToPassStore({
+          envName: ENV_KEY_ID,
+          passEntryPath: PASS_KEY_ID,
+          schema: AccessKeyId,
+        }),
+        accessKeySecret: Effect.map(
+          getParsedEnvOrFallbackToPassStore({
+            envName: ENV_KEY_SECRET,
+            passEntryPath: PASS_KEY_SECRET,
+            schema: AccessKeySecret,
+          }),
+          Redacted.make,
+        ),
+      },
+      { concurrency: 2 },
+    ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner)),
+  ),
+)
 
 const passShow = (entry: string) =>
   ChildProcessSpawner.ChildProcessSpawner.use(spawner =>

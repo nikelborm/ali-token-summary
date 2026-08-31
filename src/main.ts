@@ -195,7 +195,8 @@ const command = Command.make(
   ),
 )
 
-const AppLayer = CurrencyConverter.layer.pipe(
+const AppLayer = Credentials.layer.pipe(
+  Layer.provideMerge(CurrencyConverter.layer),
   Layer.provideMerge(BunHttpClient.layer),
   Layer.provideMerge(BunServices.layer),
 )
