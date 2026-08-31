@@ -90,7 +90,6 @@ export const layer = Effect.gen(function* () {
   const instanceBill = Effect.fn('Bill.instanceBill')(function* (
     options: InstanceBillOptions,
   ) {
-    // TODO: turn it into paginated stream instead and render table progressively
     const collected: Array<LineItem> = []
     let cursor = Option.none<string>()
 

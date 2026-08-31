@@ -31,10 +31,6 @@ const ENV_KEY_SECRET = 'ALIBABA_CLOUD_ACCESS_KEY_SECRET'
 const PASS_KEY_ID = 'alibabacloud.com/vova/access_key_id'
 const PASS_KEY_SECRET = 'alibabacloud.com/vova/access_key_secret'
 
-// TODO: just implement a ConfigStore interface on top of pass instead of manual
-// fallback, but first need to verify that there's a way to properly compose
-// many stores, because this is essentially what I have
-
 const getParsedEnvOrFallbackToPassStore = <T>(conf: {
   envName: string
   passEntryPath: string
