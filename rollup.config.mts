@@ -8,7 +8,7 @@ export default {
   input: ['dist/index.js'],
   output: {
     dir: 'dist/minified',
-    format: 'es',
+    format: 'esm',
     sourcemap: false,
     compact: true,
   },

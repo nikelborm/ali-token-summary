@@ -23,6 +23,7 @@ import * as Credentials from './Credentials.ts'
 import * as CurrencyConverter from './CurrencyConverter.ts'
 import * as Format from './Format.ts'
 import * as Report from './Report.ts'
+import * as packageJson from '../package.json'
 
 const BillingCycle = Schema.String.pipe(
   Schema.check(
@@ -77,7 +78,7 @@ const currentCycle = Effect.map(DateTime.now, now =>
 )
 
 const command = Command.make(
-  'ali-summary',
+  packageJson.name,
   { cycle, currency, product, transport, json, nonzero },
   Effect.fn(function* (input) {
     const billingCycle = Option.isSome(input.cycle)
@@ -194,7 +195,10 @@ const AppLayer = Credentials.layer.pipe(
 )
 
 command.pipe(
-  Command.run({ version: '0.1.0' }),
+  Command.run({
+    version: packageJson.version,
+    renderErrors: true,
+  }),
   Effect.provide(AppLayer),
   BunRuntime.runMain,
 )

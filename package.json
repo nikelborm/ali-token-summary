@@ -1,8 +1,12 @@
 {
-  "name": "ali_summary",
-  "module": "index.ts",
+  "name": "ali-token-summary",
+  "version": "0.1.0",
   "type": "module",
-  "private": true,
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": false
+  },
   "devDependencies": {
     "@types/bun": "latest",
     "typescript": "^7.0.2",
@@ -22,11 +26,21 @@
     "rollup-plugin-visualizer": "^7.1.1"
   },
   "scripts": {
-    "build": "tsc && rollup -c rollup.config.mts && chmod +x dist/minified/*",
+    "build": "tsc && rollup -c rollup.config.mts && cd dist/minified && chmod +x index.js && mv index.js index.mjs",
     "lint": "biome check --write --unsafe",
     "test": "bun --bun run vitest run"
   },
+  "exports": {
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist-types/index.d.ts",
+  "files": [
+    "dist/minified/index.mjs"
+  ],
   "bin": {
-    "ali-summary": "index.ts"
+    "ali-token-summary": "./dist/minified/index.mjs",
+    "als": "./dist/minified/index.mjs"
   }
 }
