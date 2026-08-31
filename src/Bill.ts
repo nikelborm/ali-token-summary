@@ -34,10 +34,7 @@ export class Bill extends Context.Service<
   {
     instanceBill(
       options: InstanceBillOptions,
-    ): Effect.Effect<
-      ReadonlyArray<LineItem>,
-      BillError
-    >
+    ): Effect.Effect<ReadonlyArray<LineItem>, BillError>
   }
 >()('ali_summary/Bill') {}
 

@@ -128,7 +128,9 @@ export const layer = Layer.effect(
         ),
       },
       { concurrency: 2 },
-    ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner)),
+    ).pipe(
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+    ),
   ),
 )
 
