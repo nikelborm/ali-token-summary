@@ -28,12 +28,12 @@ export interface ModelTotals {
 const MILLION = BigDecimal.fromBigInt(1_000_000n)
 
 /**
- * Digits kept for the figures this tool derives rather than reads off the
- * bill. A division carries BigDecimal's full working precision - the blended
- * price of 119 tokens came out a hundred digits long - and none of it past the
- * sixth place is real, since the bill itself is quoted to eight and the FX rate
- * to four. Rounding here rather than at the point of rendering keeps the table
- * and the JSON quoting the same number.
+ * Digits kept for the figures this tool derives rather than reads off the bill.
+ * A division carries BigDecimal's full working precision - the blended price of
+ * 119 tokens came out a hundred digits long - and none of it past the sixth
+ * place is real, since the bill itself is quoted to eight and the financial
+ * exchange rate to four. Rounding here rather than at the point of rendering
+ * keeps the table and the JSON quoting the same number.
  */
 const DERIVED_SCALE = 6
 

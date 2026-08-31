@@ -88,7 +88,7 @@ const command = Command.make(
     const currencyConverter = yield* CurrencyConverter.CurrencyConverter
 
     // The rate is a nicety, not a dependency: a report in dollars is still
-    // worth printing when every FX source is down.
+    // worth printing when every financial exchange source is down.
     const rateEffect =
       input.currency === 'usd'
         ? Effect.succeed(Option.none<CurrencyConverter.Rate>())

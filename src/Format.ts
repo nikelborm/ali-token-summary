@@ -86,7 +86,7 @@ export const count = (value: BigDecimal.BigDecimal): string =>
     ),
   )
 
-/** A plain decimal with a fixed number of places, used for FX rates. */
+/** A plain decimal with a fixed number of places, used for currency conversion rates. */
 export const fixed = (
   value: BigDecimal.BigDecimal,
   fractionDigits: number,

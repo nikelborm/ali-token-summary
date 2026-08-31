@@ -35,9 +35,8 @@ bun run index.ts 2026-08     # a specific cycle
 
 ## Credentials
 
-`ALIBABA_CLOUD_ACCESS_KEY_ID` and `ALIBABA_CLOUD_ACCESS_KEY_SECRET` are used when
-both are set. Otherwise the two values are read concurrently from the password
-store:
+`ALIBABA_CLOUD_ACCESS_KEY_ID` and `ALIBABA_CLOUD_ACCESS_KEY_SECRET` are
+preferred. When absent, missing entries fall back to the password store:
 
 ```
 pass show alibabacloud.com/vova/access_key_id
@@ -46,8 +45,7 @@ pass show alibabacloud.com/vova/access_key_secret
 
 The `aliyun` binary is not required. Requests are signed locally (Signature
 Version 1.0, HMAC-SHA1) and sent straight to `business.ap-southeast-1.aliyuncs.com`.
-`--transport cli` remains as a fallback, and passes credentials through the
-child environment rather than argv so they stay out of the process table.
+`--transport cli` remains as a fallback.
 
 ## Notes on the numbers
 
@@ -70,9 +68,9 @@ child environment rather than argv so they stay out of the process table.
   and `BigDecimal.format` itself switches to exponential at scale 16, so
   `Format.toPlainString` renders positionally and `Intl.NumberFormat` groups
   digits with spaces.
-- **The FX rate is CBR**, which is the reference rate for anything denominated
-  in roubles but publishes on business days only. `open.er-api.com` stands in if
-  CBR is unreachable.
+- **The financial exchange rate is Central Bank of Russia**, which is the
+  reference rate for anything denominated in roubles but publishes on business
+  days only. `open.er-api.com` stands in if CBR is unreachable.
 - **Token counts are metered in thousands**, spelled `1K tokens` by Model
   Studio and `KTokens` by Marketplace. Both are scaled to whole tokens; any
   other unit passes through unscaled rather than being misreported.
