@@ -1,0 +1,115 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.11/schema.json",
+  "files": {
+    "ignoreUnknown": true,
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/.next",
+      "!**/bun.lock",
+      "!**/gh-page",
+      "!**/dist",
+      // TODO: remove later?
+      "!**/joiners",
+      "!**/dist-types",
+      "!**/build",
+      "!packages/next-midi-demo/public/sw.js"
+    ]
+  },
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "formatter": {
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "enabled": true
+  },
+  "javascript": {
+    "formatter": {
+      "arrowParentheses": "asNeeded",
+      "bracketSameLine": false,
+      "bracketSpacing": true,
+      "jsxQuoteStyle": "double",
+      "quoteProperties": "asNeeded",
+      "semicolons": "asNeeded",
+      "trailingCommas": "all",
+      "quoteStyle": "single"
+    }
+  },
+  "linter": {
+    "rules": {
+      "suspicious": {
+        "noExplicitAny": "off",
+        "useIterableCallbackReturn": "info"
+      },
+      "correctness": {
+        "noChildrenProp": "info",
+        "useJsonImportAttributes": "error",
+        // TODO: report this buggy behavior on TS Effect monorepo
+        "noUndeclaredDependencies": "off",
+        "noUnresolvedImports": "off"
+      },
+      "style": {
+        "useComponentExportOnlyModules": "off",
+        "useTemplate": "off",
+        "useShorthandFunctionType": "off",
+        // "noDefaultExport": "warn",
+        "noRestrictedImports": {
+          "level": "error",
+          "options": {
+            "patterns": [
+              {
+                "group": [
+                  "effect",
+                  "@effect/*",
+                  "@effect-atom/*",
+                  "!@effect/vitest"
+                ],
+                "message": "Do not import from effect package directly. Use namespace imports instead"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "domains": {
+      "next": "all",
+      "turborepo": "all",
+      "project": "all",
+      // "types": "all",
+      "react": "all"
+    }
+  },
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": {
+          "level": "on",
+          "options": {
+            "groups": [
+              [":BUN:", ":NODE:"],
+              ":BLANK_LINE:",
+              [
+                ":PACKAGE:",
+                ":PACKAGE_WITH_PROTOCOL:",
+                "!effect/**",
+                "!effect",
+                "!@effect/**",
+                "!@effect-atom/**"
+              ],
+              ":BLANK_LINE:",
+              ["effect", "effect/**", "@effect/**", "@effect-atom/**"],
+              ":BLANK_LINE:",
+              ":URL:",
+              ":BLANK_LINE:",
+              ":PATH:"
+            ]
+          }
+        }
+      }
+    }
+  }
+}
