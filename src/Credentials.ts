@@ -30,7 +30,10 @@ const PASS_KEY_SECRET = 'alibabacloud.com/vova/access_key_secret'
 
 const passShow = (entry: string) =>
   ChildProcessSpawner.ChildProcessSpawner.use(spawner =>
-    spawner.string(ChildProcess.make`pass show ${entry}`),
+    // inherit, so that gpg agent can show the password prompt
+    spawner.string(
+      ChildProcess.make({ stderr: 'inherit', stdin: 'inherit' })`pass show ${entry}`,
+    ),
   ).pipe(
     // The expectation is that nothing else will be present in the file except
     // one line we're looking for
@@ -44,7 +47,9 @@ const passShow = (entry: string) =>
     ),
   )
 
-// TODO: just implement a ConfigStore interface on top of pass instead of manual fallback
+// TODO: just implement a ConfigStore interface on top of pass instead of manual
+// fallback, but first need to verify that there's a way to properly compose
+// many stores, because this is essentially what I have
 
 const NonEmptyTrimmedString = Schema.String.check(
   Schema.isNonEmpty(),

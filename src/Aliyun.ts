@@ -34,7 +34,8 @@ export class AliyunError extends Schema.TaggedError<AliyunError>()(
   'AliyunError',
   {
     message: Schema.String,
-    cause: Schema.optional(Schema.ErrorInstance()),
+    cause: Schema.optionalKey(Schema.ErrorInstance()),
+    body: Schema.optionalKey(Schema.Json),
   },
 ) {}
 
@@ -120,16 +121,6 @@ export type AliyunApiLayer = Layer.Layer<
   | ChildProcessSpawner.ChildProcessSpawner
 >
 
-const parseJson = (action: string, body: string) =>
-  Effect.try({
-    try: () => JSON.parse(body) as Schema.Json,
-    catch: cause =>
-      new AliyunError({
-        message: `${action} returned a body that is not JSON`,
-        cause: cause as Error,
-      }),
-  })
-
 /** Signs the request locally and sends it straight to the service. */
 export const layerHttp: AliyunApiLayer = Effect.gen(function* () {
   const credentials = yield* Credentials.Credentials
@@ -165,16 +156,17 @@ export const layerHttp: AliyunApiLayer = Effect.gen(function* () {
       }
 
       const canonicalQuery = canonicalizeQuery(payload)
-      const signature = yield* sign(
-        Redacted.value(credentials.accessKeySecret),
-        'GET',
-        canonicalQuery,
-      ).pipe(
-        Effect.mapError(
-          cause =>
-            new AliyunError({ message: 'Could not sign the request', cause }),
+
+      const signature = yield* Effect.mapError(
+        sign(
+          Redacted.value(credentials.accessKeySecret),
+          'GET',
+          canonicalQuery,
         ),
+        cause =>
+          new AliyunError({ message: 'Could not sign the request', cause }),
       )
+
       const url = `https://${bssOpenApi.host}/?${canonicalQuery}&Signature=${alibabaEncodeURIComponent(signature)}`
 
       const response = yield* HttpClientRequest.get(url).pipe(
@@ -197,15 +189,13 @@ export const layerHttp: AliyunApiLayer = Effect.gen(function* () {
           }),
       )
 
-      if (response.status >= 400) {
-        // Alibaba returns a JSON error envelope; surfacing it verbatim is
-        // far more useful than the status code alone.
+      if (response.status >= 400)
+        // Alibaba returns a JSON error envelope; surfacing it verbatim is far
+        // more useful than the status code alone.
         return yield* new AliyunError({
           message: `${action} failed with HTTP ${response.status}`,
-          // TODO: actually make it possible to inspect the error
           body,
         })
-      }
 
       return body
     },
@@ -214,6 +204,8 @@ export const layerHttp: AliyunApiLayer = Effect.gen(function* () {
 
   return AliyunApi.of({ call })
 }).pipe(Layer.effect(AliyunApi))
+
+const decodeJson = Schema.Json.pipe(Schema.fromJsonString, Schema.decodeEffect)
 
 /**
  * Delegates to the `aliyun` binary. Credentials go through the environment
@@ -259,7 +251,14 @@ export const layerCli: AliyunApiLayer = Effect.gen(function* () {
       ),
     )
 
-    return yield* parseJson(action, output)
+    return yield* Effect.mapError(
+      decodeJson(output),
+      cause =>
+        new AliyunError({
+          message: `Failed to parse JSON returned by aliyun CLI`,
+          cause,
+        }),
+    )
   })
 
   return AliyunApi.of({ call })
