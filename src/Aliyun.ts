@@ -13,6 +13,7 @@
  * payload; validating it is the caller's job, via Schema.
  */
 import * as EArray from 'effect/Array'
+import type * as Cause from 'effect/Cause'
 import * as Context from 'effect/Context'
 import * as Crypto from 'effect/Crypto'
 import * as DateTime from 'effect/DateTime'
@@ -20,7 +21,6 @@ import * as Effect from 'effect/Effect'
 import { flow } from 'effect/Function'
 import * as Layer from 'effect/Layer'
 import * as Order from 'effect/Order'
-import type * as PlatformError from 'effect/PlatformError'
 import * as Redacted from 'effect/Redacted'
 import * as Schema from 'effect/Schema'
 import type * as Unify from 'effect/Unify'
@@ -53,79 +53,74 @@ export const layerHttp = Effect.gen(function* () {
   const client = yield* HttpClient.HttpClient
   const crypto = yield* Crypto.Crypto
 
-  const call = Effect.fn('AliyunApi.http')(
-    function* (action: string, parameters: Record<string, string>) {
-      const { credentials, nonce, timestamp } = yield* Effect.all(
-        {
-          credentials: Credentials.Credentials,
-          // Replay protection: the service rejects a nonce it has seen before.
-          nonce: Effect.mapError(
-            crypto.randomUUIDv4,
-            AliyunError.passthroughCause(
-              'Could not generate a signature nonce',
-            ),
-          ),
-          // The service rejects sub-second precision in Timestamp.
-          timestamp: Effect.map(
-            DateTime.now,
-            now => `${DateTime.toDateUtc(now).toISOString().slice(0, 19)}Z`,
-          ),
-        },
-        { concurrency: 'unbounded' },
-      )
-
-      const payload: Record<string, string> = {
-        ...parameters,
-        Action: action,
-        Format: 'JSON',
-        Version: bssOpenApi.version,
-        RegionId: bssOpenApi.region,
-        AccessKeyId: credentials.accessKeyId,
-        // TODO: check if it has other simpler signature methods which could be
-        // easily supported by effect's builting Crypto, without reimplementing
-        // HMAC
-        SignatureMethod: 'HMAC-SHA1',
-        SignatureVersion: '1.0',
-        SignatureNonce: nonce,
-        Timestamp: timestamp,
-      }
-
-      const canonicalQuery = canonicalizeQuery(payload)
-
-      const signature = yield* Effect.mapError(
-        sign(
-          Redacted.value(credentials.accessKeySecret),
-          'GET',
-          canonicalQuery,
+  const call = Effect.fn('AliyunApi.http')(function* (
+    action: string,
+    parameters: Record<string, string>,
+  ) {
+    const { credentials, nonce, timestamp } = yield* Effect.all(
+      {
+        credentials: Credentials.Credentials,
+        // Replay protection: the service rejects a nonce it has seen before.
+        nonce: Effect.mapError(
+          crypto.randomUUIDv4,
+          AliyunError.passthroughCause('Could not generate a signature nonce'),
         ),
-        AliyunError.passthroughCause('Could not sign the request'),
-      )
-
-      const url = `https://${bssOpenApi.host}/?${canonicalQuery}&Signature=${alibabaEncodeURIComponent(signature)}`
-
-      const response = yield* HttpClientRequest.get(url).pipe(
-        client.execute,
-        Effect.mapError(
-          AliyunError.passthroughCause(`Request to ${bssOpenApi.host} failed`),
+        // The service rejects sub-second precision in Timestamp.
+        timestamp: Effect.map(
+          DateTime.now,
+          now => `${DateTime.toDateUtc(now).toISOString().slice(0, 19)}Z`,
         ),
-      )
+      },
+      { concurrency: 'unbounded' },
+    )
 
-      const body = yield* Effect.mapError(
-        response.json,
-        AliyunError.passthroughCause('Could not read the response body'),
-      )
+    const payload: Record<string, string> = {
+      ...parameters,
+      Action: action,
+      Format: 'JSON',
+      Version: bssOpenApi.version,
+      RegionId: bssOpenApi.region,
+      AccessKeyId: credentials.accessKeyId,
+      // The only values Signature Version 1.0 accepts, and there is no
+      // HMAC-free way out: the newer V3 scheme signs with ACS3-HMAC-SHA256
+      // as its sole algorithm. Since effect's Crypto offers digests but no
+      // HMAC, `sign` reaches for Bun's hasher.
+      SignatureMethod: 'HMAC-SHA1',
+      SignatureVersion: '1.0',
+      SignatureNonce: nonce,
+      Timestamp: timestamp,
+    }
 
-      if (response.status >= 400)
-        // We can't do anything about it, in the sense that we need to expose
-        // the same interface from the CLI too, we cannot throw here, besides,
-        // most of the time the API has message and status embedded directly
-        // into the response
-        yield* Effect.logError(`${action} failed with HTTP ${response.status}`)
+    const canonicalQuery = canonicalizeQuery(payload)
 
-      return body
-    },
-    Effect.provideService(Crypto.Crypto, crypto),
-  )
+    const signature = yield* Effect.mapError(
+      sign(Redacted.value(credentials.accessKeySecret), 'GET', canonicalQuery),
+      AliyunError.passthroughCause('Could not sign the request'),
+    )
+
+    const url = `https://${bssOpenApi.host}/?${canonicalQuery}&Signature=${alibabaEncodeURIComponent(signature)}`
+
+    const response = yield* HttpClientRequest.get(url).pipe(
+      client.execute,
+      Effect.mapError(
+        AliyunError.passthroughCause(`Request to ${bssOpenApi.host} failed`),
+      ),
+    )
+
+    const body = yield* Effect.mapError(
+      response.json,
+      AliyunError.passthroughCause('Could not read the response body'),
+    )
+
+    if (response.status >= 400)
+      // We can't do anything about it, in the sense that we need to expose
+      // the same interface from the CLI too, we cannot throw here, besides,
+      // most of the time the API has message and status embedded directly
+      // into the response
+      yield* Effect.logError(`${action} failed with HTTP ${response.status}`)
+
+    return body
+  })
 
   return AliyunApi.of({ call })
 }).pipe(Layer.effect(AliyunApi))
@@ -214,10 +209,30 @@ export interface Endpoint {
   readonly product: string
 }
 
-// TODO: find sources for this
 /**
  * Alibaba's canonicalisation treats only `A-Za-z0-9-_.~` as unreserved, which
  * is a slightly smaller set than `encodeURIComponent` leaves alone.
+ *
+ * The rule, per Alibaba Cloud's signature docs: leave `A-Z a-z 0-9 - _ . ~`
+ * alone, percent-encode everything else as `%XY`, encode a space as `%20`
+ * rather than `+`, and encode `*` as `%2A`. Their reference implementation
+ * spells it as three fixups over Java's form encoder:
+ *
+ * ```java
+ * URLEncoder.encode(value, "UTF-8")
+ *   .replace("+", "%20").replace("*", "%2A").replace("%7E", "~")
+ * ```
+ *
+ * `encodeURIComponent` already gets the space and the tilde right, so only
+ * the gap between the two unreserved sets is left to patch. That set is
+ * RFC 3986 §2.3 unreserved; ECMA-262's `encodeURIComponent` additionally
+ * passes through the RFC 2396 "mark" characters `! ' ( ) *`, which is exactly
+ * the list replaced below.
+ *
+ * @see https://www.alibabacloud.com/help/en/elastic-compute-service/latest/request-signatures
+ * @see https://help.aliyun.com/en/document_detail/91847.html
+ * @see https://www.rfc-editor.org/rfc/rfc3986#section-2.3
+ * @see https://tc39.es/ecma262/#sec-encodeuricomponent-uricomponent
  */
 export const alibabaEncodeURIComponent = (value: string): string =>
   encodeURIComponent(value)
@@ -236,8 +251,8 @@ export const canonicalizeQuery = (parameters: Record<string, string>): string =>
 const makeHmacSha1Base64 = (
   key: string,
   message: string,
-): Effect.Effect<string> =>
-  Effect.sync(() => {
+): Effect.Effect<string, Cause.UnknownError> =>
+  Effect.try(() => {
     const hasher = new Bun.CryptoHasher('sha1', key)
     hasher.update(message)
     return hasher.digest('base64')
@@ -248,7 +263,7 @@ export const sign = (
   secret: string,
   method: string,
   canonicalQuery: string,
-): Effect.Effect<string, PlatformError.PlatformError, Crypto.Crypto> =>
+): Effect.Effect<string, Cause.UnknownError> =>
   makeHmacSha1Base64(
     `${secret}&`,
     `${method}&${alibabaEncodeURIComponent('/')}&${alibabaEncodeURIComponent(canonicalQuery)}`,

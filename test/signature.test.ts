@@ -1,4 +1,3 @@
-import * as BunCrypto from '@effect/platform-bun/BunCrypto'
 import { expect, it, test } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
 
@@ -37,7 +36,7 @@ it.effect('reproduces the signature from the documented example', () =>
         Aliyun.canonicalizeQuery(documentedRequest),
       ),
     ).toBe('OLeaidS1JvxuMvnyHOwuJ+uX5qY=')
-  }).pipe(Effect.provide(BunCrypto.layer)),
+  }),
 )
 
 test('escapes the characters encodeURIComponent leaves alone', () => {

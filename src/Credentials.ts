@@ -32,9 +32,14 @@ const PASS_KEY_SECRET = 'alibabacloud.com/vova/access_key_secret'
 // fallback, but first need to verify that there's a way to properly compose
 // many stores, because this is essentially what I have
 
-const getParsedEnvOrFallbackToPassStore = (conf: {
+const getParsedEnvOrFallbackToPassStore = <T>(conf: {
   envName: string
   passEntryPath: string
+  /**
+   * Applied to whatever the winning source handed back, so a value out of the
+   * env and a value out of `pass` are held to the exact same shape.
+   */
+  schema: Schema.Codec<T, string>
 }) =>
   Config.schema(Schema.String, conf.envName).pipe(
     Config.option,
@@ -50,7 +55,7 @@ const getParsedEnvOrFallbackToPassStore = (conf: {
         `Failed to parse ${conf.envName} env var content (not a string???)`,
       ),
     ),
-    Effect.flatMapEager(Schema.decodeEffect(NonEmptyTrimmedString)),
+    Effect.flatMapEager(Schema.decodeEffect(conf.schema)),
     Effect.catchTag(
       'SchemaError',
       CredentialsError.passthroughCause(
@@ -74,18 +79,27 @@ const NonEmptyTrimmedString = Schema.String.check(
   Schema.isTrimmed(),
 )
 
-// TODO: finish it
-const _AccessId = Schema.String.pipe(
+/**
+ * `LTAI` followed by 20 alphanumerics, 24 characters in total. Keys minted
+ * before Alibaba settled on that shape were a bare 16 alphanumerics; this
+ * rejects those, and rejects STS session credentials too, which nothing here
+ * knows how to use anyway.
+ */
+const AccessKeyId = NonEmptyTrimmedString.pipe(
   Schema.check(
-    Schema.isPattern(/^____$/, {
-      message: 'Expected a __ of the form ___, e.g. __',
+    Schema.isPattern(/^LTAI[0-9A-Za-z]{20}$/, {
+      message:
+        'Expected an AccessKey ID of the form LTAI + 20 alphanumerics, e.g. LTAI5tExampleKeyId000000',
     }),
   ),
 )
-const _AccessSecret = Schema.String.pipe(
+
+/** Exactly 30 alphanumerics, no separators and no fixed prefix. */
+const AccessKeySecret = NonEmptyTrimmedString.pipe(
   Schema.check(
-    Schema.isPattern(/^____$/, {
-      message: 'Expected a __ of the form ___, e.g. __',
+    Schema.isPattern(/^[0-9A-Za-z]{30}$/, {
+      message:
+        'Expected an AccessKey secret of 30 alphanumerics, e.g. xY3kQ9pR2mS7tU4vW1zA6bC8dE0fG5',
     }),
   ),
 )
@@ -95,11 +109,13 @@ export const layer = Effect.all(
     accessKeyId: getParsedEnvOrFallbackToPassStore({
       envName: ENV_KEY_ID,
       passEntryPath: PASS_KEY_ID,
+      schema: AccessKeyId,
     }),
     accessKeySecret: Effect.map(
       getParsedEnvOrFallbackToPassStore({
         envName: ENV_KEY_SECRET,
         passEntryPath: PASS_KEY_SECRET,
+        schema: AccessKeySecret,
       }),
       Redacted.make,
     ),

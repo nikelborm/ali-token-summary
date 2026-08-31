@@ -25,19 +25,12 @@ const withPayload = (payload: Schema.Json) =>
 
 const fetchRows = (payload: Schema.Json) =>
   Effect.runPromise(
-    Effect.gen(function* () {
-      const bill = yield* Bill.Bill
-      // TODO: avoid accessing the actual credentials here
-      return Report.aggregate(
-        yield* bill
-          .instanceBill({ cycle: '2026-08' })
-          .pipe(
-            Effect.provide(
-              Layer.provideMerge(Credentials.layer, BunServices.layer),
-            ),
-          ),
-      )
-    }).pipe(Effect.provide(withPayload(payload))),
+    // TODO: avoid accessing the actual credentials here
+    Bill.Bill.use(bill => bill.instanceBill({ cycle: '2026-08' })).pipe(
+      Effect.provide(Layer.provideMerge(Credentials.layer, BunServices.layer)),
+      Effect.map(Report.aggregate),
+      Effect.provide(withPayload(payload)),
+    ),
   )
 
 const payloadWith = (extra: ReadonlyArray<Schema.Json>) => ({
