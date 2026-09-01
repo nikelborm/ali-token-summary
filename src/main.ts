@@ -17,13 +17,13 @@ import * as Argument from 'effect/unstable/cli/Argument'
 import * as Command from 'effect/unstable/cli/Command'
 import * as Flag from 'effect/unstable/cli/Flag'
 
+import * as packageJson from '../package.json'
 import * as Aliyun from './Aliyun.ts'
 import * as Bill from './Bill.ts'
 import * as Credentials from './Credentials.ts'
 import * as CurrencyConverter from './CurrencyConverter.ts'
 import * as Format from './Format.ts'
 import * as Report from './Report.ts'
-import * as packageJson from '../package.json'
 
 const BillingCycle = Schema.String.pipe(
   Schema.check(
