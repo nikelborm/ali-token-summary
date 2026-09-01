@@ -18,7 +18,7 @@ import * as Context from 'effect/Context'
 import * as Crypto from 'effect/Crypto'
 import * as DateTime from 'effect/DateTime'
 import * as Effect from 'effect/Effect'
-import { flow } from 'effect/Function'
+import { flow, pipe } from 'effect/Function'
 import * as Layer from 'effect/Layer'
 import * as Order from 'effect/Order'
 import * as Redacted from 'effect/Redacted'
@@ -244,12 +244,18 @@ export interface Endpoint {
  * @see https://tc39.es/ecma262/#sec-encodeuricomponent-uricomponent
  */
 export const alibabaEncodeURIComponent = (value: string): string =>
-  encodeURIComponent(value)
-    .replaceAll('!', '%21')
-    .replaceAll("'", '%27')
-    .replaceAll('(', '%28')
-    .replaceAll(')', '%29')
-    .replaceAll('*', '%2A')
+  pipe(
+    encodeURIComponent(value),
+    urlEncodeChar`!`,
+    urlEncodeChar`'`,
+    urlEncodeChar`(`,
+    urlEncodeChar`)`,
+    urlEncodeChar`*`,
+  )
+
+const urlEncodeChar = (char: TemplateStringsArray) => (base: string) =>
+  // biome-ignore lint/style/noNonNullAssertion: implicit
+  base.replaceAll(char[0]!, '%' + char[0]!.charCodeAt(0).toString(16))
 
 export const canonicalizeQuery = (parameters: Record<string, string>): string =>
   Object.entries(parameters)
