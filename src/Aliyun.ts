@@ -218,6 +218,10 @@ export interface Endpoint {
   readonly product: string
 }
 
+const urlEncodeChar = (char: TemplateStringsArray) => (base: string) =>
+  // biome-ignore lint/style/noNonNullAssertion: implicit
+  base.replaceAll(char[0]!, '%' + char[0]!.charCodeAt(0).toString(16))
+
 /**
  * Alibaba's canonicalisation treats only `A-Za-z0-9-_.~` as unreserved, which
  * is a slightly smaller set than `encodeURIComponent` leaves alone.
@@ -243,19 +247,14 @@ export interface Endpoint {
  * @see https://www.rfc-editor.org/rfc/rfc3986#section-2.3
  * @see https://tc39.es/ecma262/#sec-encodeuricomponent-uricomponent
  */
-export const alibabaEncodeURIComponent = (value: string): string =>
-  pipe(
-    encodeURIComponent(value),
-    urlEncodeChar`!`,
-    urlEncodeChar`'`,
-    urlEncodeChar`(`,
-    urlEncodeChar`)`,
-    urlEncodeChar`*`,
-  )
-
-const urlEncodeChar = (char: TemplateStringsArray) => (base: string) =>
-  // biome-ignore lint/style/noNonNullAssertion: implicit
-  base.replaceAll(char[0]!, '%' + char[0]!.charCodeAt(0).toString(16))
+export const alibabaEncodeURIComponent = flow(
+  encodeURIComponent,
+  urlEncodeChar`!`,
+  urlEncodeChar`'`,
+  urlEncodeChar`(`,
+  urlEncodeChar`)`,
+  urlEncodeChar`*`,
+)
 
 export const canonicalizeQuery = (parameters: Record<string, string>): string =>
   Object.entries(parameters)
