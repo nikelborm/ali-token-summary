@@ -8,23 +8,18 @@
     "provenance": false
   },
   "devDependencies": {
-    "@types/bun": "latest",
-    "typescript": "^7.0.2",
-    "vitest": "^4.1.11",
     "@biomejs/biome": "^2.5.11",
     "@effect/platform-bun": "^4.0.0-rc.112",
     "@effect/vitest": "^4.0.0-rc.112",
     "@evadev/tsconfig": "^1.0.3",
-    "@rollup/plugin-commonjs": "^29.0.3",
-    "@rollup/plugin-json": "^6.1.0",
-    "@rollup/plugin-node-resolve": "^16.0.3",
-    "@rollup/plugin-terser": "^1.0.0",
+    "@types/bun": "latest",
     "effect": "^4.0.0-rc.112",
-    "rollup": "^4.63.1",
-    "rollup-plugin-visualizer": "^7.1.1"
+    "rolldown": "^1.2.7",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
   },
   "scripts": {
-    "build": "tsc && rollup -c rollup.config.mts && cd dist/minified && chmod +x index.js && mv index.js index.mjs",
+    "build": "tsc && rolldown -c rolldown.config.mts && cd dist/minified && chmod +x index.js && mv index.js index.mjs",
     "lint": "biome check --write --unsafe",
     "test": "bun --bun run vitest run"
   },
