@@ -7,7 +7,7 @@ export default defineConfig({
     dir: 'dist/minified',
     format: 'esm',
     sourcemap: false,
-    entryFileNames: 'index.js',
+    entryFileNames: 'index.mjs',
     minify: true,
   },
 })

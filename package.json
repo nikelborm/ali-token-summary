@@ -19,7 +19,7 @@
     "vitest": "^4.1.11"
   },
   "scripts": {
-    "build": "tsc && rolldown -c rolldown.config.mts && cd dist/minified && chmod +x index.js && mv index.js index.mjs",
+    "build": "tsc && rolldown -c rolldown.config.mts && chmod +x dist/minified/*",
     "lint": "biome check --write --unsafe",
     "test": "bun --bun run vitest run"
   },
